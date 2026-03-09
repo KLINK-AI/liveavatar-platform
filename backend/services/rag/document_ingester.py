@@ -12,7 +12,7 @@ from typing import Optional
 from pathlib import Path
 import structlog
 
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 logger = structlog.get_logger()
 
