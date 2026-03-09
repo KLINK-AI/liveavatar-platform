@@ -1,0 +1,76 @@
+####################################################
+# LiveAvatar Platform — Coolify Production Deployment
+####################################################
+# Optimiert für Coolify (Traefik Reverse Proxy + SSL)
+# PostgreSQL: Supabase (extern)
+# LiveKit: LiveKit Cloud (extern)
+# Nur Qdrant + Redis laufen lokal als Container
+####################################################
+
+services:
+  # --- Backend (FastAPI) ---
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - HEYGEN_API_KEY=${HEYGEN_API_KEY}
+      - LIVEAVATAR_API_BASE=${LIVEAVATAR_API_BASE:-https://api.heygen.com}
+      - LIVEKIT_URL=${LIVEKIT_URL}
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - DEFAULT_LLM_PROVIDER=${DEFAULT_LLM_PROVIDER:-openai}
+      - DEFAULT_LLM_MODEL=${DEFAULT_LLM_MODEL:-gpt-4o}
+      - QDRANT_URL=http://qdrant:6333
+      - REDIS_URL=redis://redis:6379/0
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-openai}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-3-small}
+      - APP_ENV=${APP_ENV:-production}
+      - APP_SECRET_KEY=${APP_SECRET_KEY}
+      - APP_CORS_ORIGINS=${APP_CORS_ORIGINS}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - JWT_ALGORITHM=HS256
+      - JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
+    volumes:
+      - upload_data:/app/uploads
+    depends_on:
+      - qdrant
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # --- Frontend (React, Production Build mit Nginx) ---
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # --- Qdrant (Vector Database, lokal) ---
+  qdrant:
+    image: qdrant/qdrant:latest
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: unless-stopped
+
+  # --- Redis (Caching, lokal) ---
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+
+volumes:
+  qdrant_data:
+  redis_data:
+  upload_data:
