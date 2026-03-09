@@ -17,9 +17,8 @@ pydantic-settings==2.7.0
 # LiveAvatar LITE Mode API (REST + WebSocket)
 httpx==0.28.1
 
-# LiveKit (WebRTC Streaming)
+# LiveKit (WebRTC Streaming — Token-Generierung)
 livekit-api==0.7.1
-livekit==1.0.25
 
 # TTS — ElevenLabs
 elevenlabs==1.13.5

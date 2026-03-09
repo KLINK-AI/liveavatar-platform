@@ -14,8 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install Python dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt 2>&1 || \
-    (echo "=== PIP INSTALL FAILED ===" && pip install --no-cache-dir -r requirements.txt --verbose && exit 1)
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .
