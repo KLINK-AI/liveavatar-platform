@@ -105,13 +105,20 @@ class LiveKitManager:
 
         return token.to_jwt()
 
-    def get_livekit_settings_for_heygen(self, room_name: str) -> dict:
+    def get_livekit_config_for_liveavatar(self, room_name: str) -> dict:
         """
-        Generate LiveKit settings to pass to HeyGen API
+        Generate LiveKit config to pass to LiveAvatar LITE API
         when using your own LiveKit instance.
 
-        Returns a dict to be included in the HeyGen create_session call
-        under the 'livekit_settings' key.
+        Returns a dict for the 'livekit_config' key in the
+        POST /v1/sessions/token request.
+
+        Format required by LiveAvatar LITE:
+        {
+            "url": "wss://your-livekit.cloud",
+            "room": "room-name",
+            "token": "agent-jwt-token"
+        }
         """
         agent_token = self.generate_agent_token(room_name)
 
@@ -120,3 +127,37 @@ class LiveKitManager:
             "room": room_name,
             "token": agent_token,
         }
+
+    def generate_stt_agent_token(
+        self,
+        room_name: str,
+        agent_name: str = "stt-agent",
+        ttl: int = 7200,
+    ) -> str:
+        """
+        Generate a LiveKit token for the STT agent.
+
+        The STT agent joins the room to capture the user's audio
+        and forward it to the speech-to-text pipeline.
+
+        This is separate from the avatar agent token —
+        the STT agent only subscribes to audio, it doesn't publish.
+        """
+        token = AccessToken(
+            api_key=self.api_key,
+            api_secret=self.api_secret,
+        )
+        token.with_identity(f"stt-agent-{agent_name}")
+        token.with_name(agent_name)
+        token.with_ttl(ttl)
+
+        grant = VideoGrants(
+            room_join=True,
+            room=room_name,
+            can_subscribe=True,       # Subscribe to user's audio
+            can_publish=False,        # STT agent doesn't publish
+            can_publish_data=True,    # May send transcription events
+        )
+        token.with_grants(grant)
+
+        return token.to_jwt()

@@ -26,8 +26,11 @@ router = APIRouter()
 class CreateTenantRequest(BaseModel):
     name: str
     slug: str
-    heygen_avatar_id: Optional[str] = None
-    heygen_voice_id: Optional[str] = None
+    liveavatar_avatar_id: Optional[str] = None
+    liveavatar_voice_id: Optional[str] = None
+    elevenlabs_api_key: Optional[str] = None
+    elevenlabs_voice_id: Optional[str] = None
+    stt_provider: Optional[str] = None
     llm_provider: str = "openai"
     llm_model: str = "gpt-4o"
     llm_api_key: Optional[str] = None
@@ -37,8 +40,11 @@ class CreateTenantRequest(BaseModel):
 
 class UpdateTenantRequest(BaseModel):
     name: Optional[str] = None
-    heygen_avatar_id: Optional[str] = None
-    heygen_voice_id: Optional[str] = None
+    liveavatar_avatar_id: Optional[str] = None
+    liveavatar_voice_id: Optional[str] = None
+    elevenlabs_api_key: Optional[str] = None
+    elevenlabs_voice_id: Optional[str] = None
+    stt_provider: Optional[str] = None
     llm_provider: Optional[str] = None
     llm_model: Optional[str] = None
     llm_api_key: Optional[str] = None
@@ -53,7 +59,9 @@ class TenantResponse(BaseModel):
     slug: str
     api_key: str
     is_active: bool
-    heygen_avatar_id: Optional[str]
+    liveavatar_avatar_id: Optional[str]
+    elevenlabs_voice_id: Optional[str]
+    stt_provider: Optional[str]
     llm_provider: str
     llm_model: str
     system_prompt: str
@@ -77,8 +85,11 @@ async def create_tenant(
     tenant = Tenant(
         name=request.name,
         slug=request.slug,
-        heygen_avatar_id=request.heygen_avatar_id,
-        heygen_voice_id=request.heygen_voice_id,
+        liveavatar_avatar_id=request.liveavatar_avatar_id,
+        liveavatar_voice_id=request.liveavatar_voice_id,
+        elevenlabs_api_key=request.elevenlabs_api_key,
+        elevenlabs_voice_id=request.elevenlabs_voice_id,
+        stt_provider=request.stt_provider,
         llm_provider=request.llm_provider,
         llm_model=request.llm_model,
         llm_api_key=request.llm_api_key,
@@ -155,7 +166,7 @@ async def get_tenant_by_slug(
         "name": tenant.name,
         "slug": tenant.slug,
         "branding": tenant.branding,
-        "has_avatar": bool(tenant.heygen_avatar_id),
+        "has_avatar": bool(tenant.liveavatar_avatar_id),
     }
 
 
@@ -166,7 +177,9 @@ def _tenant_to_response(tenant: Tenant) -> TenantResponse:
         slug=tenant.slug,
         api_key=tenant.api_key,
         is_active=tenant.is_active,
-        heygen_avatar_id=tenant.heygen_avatar_id,
+        liveavatar_avatar_id=tenant.liveavatar_avatar_id,
+        elevenlabs_voice_id=tenant.elevenlabs_voice_id,
+        stt_provider=tenant.stt_provider,
         llm_provider=tenant.llm_provider,
         llm_model=tenant.llm_model,
         system_prompt=tenant.system_prompt,

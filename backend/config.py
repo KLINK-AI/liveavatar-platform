@@ -17,9 +17,21 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql+asyncpg://liveavatar:liveavatar@localhost:5432/liveavatar"
 
-    # HeyGen LiveAvatar
-    heygen_api_key: str = ""
-    liveavatar_api_base: str = "https://api.heygen.com"
+    # LiveAvatar LITE Mode API
+    liveavatar_api_key: str = ""
+    liveavatar_api_base: str = "https://api.liveavatar.com"
+
+    # TTS — ElevenLabs
+    elevenlabs_api_key: str = ""
+    elevenlabs_default_voice_id: str = ""
+    elevenlabs_model_id: str = "eleven_multilingual_v2"
+    tts_sample_rate: int = 24000  # PCM 16Bit 24KHz for LiveAvatar LITE
+
+    # STT — Deepgram + OpenAI Whisper
+    stt_provider: str = "deepgram"  # "deepgram" or "openai"
+    deepgram_api_key: str = ""
+    deepgram_model: str = "nova-2"
+    deepgram_language: str = "de"  # German default
 
     # LiveKit
     livekit_url: str = "ws://localhost:7880"

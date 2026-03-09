@@ -2,9 +2,16 @@
 Conversation API Routes — Handle chat messages with the avatar.
 
 Endpoints:
-- POST /{session_id}/message      → Send a message and get response
-- POST /{session_id}/message/stream → Stream response via WebSocket
-- GET  /{session_id}/history       → Get conversation history
+- POST /{session_id}/message       → Send a text message, get response + avatar speech
+- WS   /{session_id}/stream        → Stream response via WebSocket (live tokens + avatar audio)
+- GET  /{session_id}/history        → Get conversation history
+
+LITE Mode Flow:
+  User sends text message (REST or WS)
+    → ConversationEngine: RAG → LLM → Text response
+    → ElevenLabs TTS: Text → PCM 16Bit 24KHz audio
+    → LiveAvatar WebSocket: agent.speak(audio_base64)
+    → Avatar renders lip-sync video in LiveKit room
 """
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
@@ -12,7 +19,6 @@ from pydantic import BaseModel
 from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-import json
 
 from database import get_db
 from models.tenant import Tenant
@@ -58,9 +64,12 @@ async def send_message(
     """
     Send a text message to the conversation.
 
-    Flow: Message → RAG → LLM → Avatar Speech → Response
+    Flow: Message → RAG → LLM → TTS → WebSocket → Avatar Speech → Response
+
+    The avatar speaks the response via the LITE Mode audio pipeline:
+    Text is converted to PCM audio by ElevenLabs, then sent as Base64
+    chunks to the LiveAvatar WebSocket for real-time lip-sync.
     """
-    # Validate session
     session = await _get_active_session(session_id, tenant.id, db)
 
     engine = get_engine()
@@ -68,7 +77,6 @@ async def send_message(
         tenant=tenant,
         session_id=session_id,
         user_message=request.message,
-        heygen_session_id=session.heygen_session_id if request.send_to_avatar else None,
         send_to_avatar=request.send_to_avatar,
     )
 
@@ -107,9 +115,13 @@ async def stream_message(
 
     The client sends: {"message": "user question", "api_key": "..."}
     The server streams back:
-      - {"type": "token", "content": "partial text"}
-      - {"type": "avatar_sent", "sentence": "..."}
-      - {"type": "done", "full_response": "..."}
+      - {"type": "token", "content": "partial text"}     → LLM token
+      - {"type": "avatar_sent", "sentence": "..."}       → Sentence sent to avatar via audio
+      - {"type": "done", "full_response": "..."}          → Complete response
+      - {"type": "error", "message": "..."}               → Error
+
+    Each completed sentence is converted to audio via ElevenLabs TTS
+    and sent to the avatar for lip-sync speech in real-time.
     """
     await websocket.accept()
 
@@ -149,13 +161,12 @@ async def stream_message(
                     await websocket.send_json({"type": "error", "message": "Session not found"})
                     continue
 
-                # Stream the response
+                # Stream the response (LLM tokens + avatar audio per sentence)
                 engine = get_engine()
                 async for chunk in engine.process_message_stream(
                     tenant=tenant,
                     session_id=session_id,
                     user_message=user_message,
-                    heygen_session_id=session.heygen_session_id,
                 ):
                     await websocket.send_json(chunk)
 

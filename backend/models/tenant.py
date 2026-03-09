@@ -21,9 +21,28 @@ class Tenant(Base):
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    # HeyGen / Avatar Config
-    heygen_avatar_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    heygen_voice_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # LiveAvatar / Avatar Config (migrated from heygen_*)
+    liveavatar_avatar_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    liveavatar_voice_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True,
+        comment="LiveAvatar voice ID (only used if LiveAvatar handles TTS)"
+    )
+
+    # TTS — ElevenLabs (per-tenant override)
+    elevenlabs_api_key: Mapped[str | None] = mapped_column(
+        Text, nullable=True,
+        comment="Per-tenant ElevenLabs API key (falls back to global config)"
+    )
+    elevenlabs_voice_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True,
+        comment="Per-tenant ElevenLabs voice ID"
+    )
+
+    # STT Config (per-tenant override)
+    stt_provider: Mapped[str | None] = mapped_column(
+        String(50), nullable=True,
+        comment="'deepgram' or 'openai' — falls back to global config"
+    )
 
     # LLM Config
     llm_provider: Mapped[str] = mapped_column(String(50), default="openai")

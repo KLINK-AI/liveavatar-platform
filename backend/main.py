@@ -26,7 +26,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    description="White-Label Plattform für HeyGen LiveAvatar mit eigenem LLM und RAG",
+    description="White-Label Plattform für LiveAvatar LITE Mode mit eigenem LLM, RAG, TTS und STT",
     version="1.0.0",
     lifespan=lifespan,
 )

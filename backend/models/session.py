@@ -1,8 +1,8 @@
-"""Avatar session model for tracking LiveAvatar streaming sessions."""
+"""Avatar session model for tracking LiveAvatar LITE Mode streaming sessions."""
 
 import uuid
 from datetime import datetime
-from sqlalchemy import String, DateTime, ForeignKey, Integer, Enum as SQLEnum
+from sqlalchemy import String, DateTime, ForeignKey, Integer, Text, Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from database import Base
 import enum
@@ -26,13 +26,25 @@ class AvatarSession(Base):
         String(36), ForeignKey("tenants.id"), nullable=False, index=True
     )
 
-    # HeyGen Session
-    heygen_session_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # LiveAvatar LITE Session (migrated from heygen_session_id)
+    liveavatar_session_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    liveavatar_session_token: Mapped[str | None] = mapped_column(
+        Text, nullable=True,
+        comment="Session token for WebSocket authentication"
+    )
+    ws_url: Mapped[str | None] = mapped_column(
+        String(500), nullable=True,
+        comment="WebSocket URL for LITE Mode command events"
+    )
+    ws_status: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, default="disconnected",
+        comment="WebSocket state: disconnected/connecting/connected/closed"
+    )
     status: Mapped[SessionStatus] = mapped_column(
         SQLEnum(SessionStatus), default=SessionStatus.CREATING
     )
 
-    # LiveKit
+    # LiveKit WebRTC
     livekit_room_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     livekit_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     livekit_token: Mapped[str | None] = mapped_column(String(2000), nullable=True)
