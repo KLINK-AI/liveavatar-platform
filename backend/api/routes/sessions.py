@@ -29,7 +29,7 @@ from models.tenant import Tenant
 from models.session import AvatarSession, SessionStatus
 from models.conversation import Conversation
 from api.middleware.auth import get_current_tenant
-from services.liveavatar_client import LiveAvatarClient, LiveAvatarError
+from services.liveavatar_client import LiveAvatarClient, LiveAvatarError, LiveAvatarStartResult
 from services.liveavatar_ws import LiveAvatarWSManager
 from services.livekit_manager import LiveKitManager
 from services.livekit_agent import LiveKitAgentService
@@ -124,27 +124,42 @@ async def create_session(
             livekit_config=livekit_config,
         )
 
-        # Update DB session with LiveAvatar details
+        # Store token info in DB
         db_session.liveavatar_session_id = la_session.session_id
         db_session.liveavatar_session_token = la_session.session_token
-        db_session.ws_url = la_session.ws_url
-        db_session.livekit_url = la_session.livekit_url
-        db_session.livekit_token = la_session.livekit_client_token
         db_session.livekit_room_name = f"avatar-{db_session.id}"
         db_session.status = SessionStatus.CREATING
+
+        # Step 2: Start session → returns LiveKit URL + tokens
+        start_result = await liveavatar.start_session(la_session.session_token)
+
+        # Update DB with LiveKit connection details from Start Session response
+        db_session.livekit_url = start_result.livekit_url or ""
+        db_session.livekit_token = start_result.livekit_client_token or ""
+        db_session.ws_url = start_result.ws_url or ""
+        db_session.status = SessionStatus.ACTIVE
         db_session.ws_status = "connecting"
 
-        # Step 2: Connect WebSocket for LITE Mode commands (background)
-        if la_session.ws_url and la_session.session_token:
+        logger.info(
+            "Session created and started",
+            session_id=db_session.id,
+            la_session_id=la_session.session_id,
+            livekit_url=db_session.livekit_url[:50] if db_session.livekit_url else "none",
+            has_client_token=bool(db_session.livekit_token),
+            has_ws_url=bool(db_session.ws_url),
+        )
+
+        # Step 3: Connect WebSocket for LITE Mode commands (background)
+        if start_result.ws_url and la_session.session_token:
             background_tasks.add_task(
                 _setup_session_services,
                 session_id=db_session.id,
                 la_session_id=la_session.session_id,
-                ws_url=la_session.ws_url,
+                ws_url=start_result.ws_url,
                 session_token=la_session.session_token,
-                livekit_url=la_session.livekit_url or livekit_mgr.livekit_url,
+                livekit_url=start_result.livekit_url or livekit_mgr.livekit_url,
                 livekit_agent_token=(
-                    la_session.livekit_agent_token
+                    start_result.livekit_agent_token
                     or livekit_mgr.generate_stt_agent_token(f"avatar-{db_session.id}")
                 ),
                 stt_provider=tenant.stt_provider,
@@ -156,6 +171,7 @@ async def create_session(
         raise HTTPException(status_code=502, detail=f"LiveAvatar error: {str(e)}")
     except Exception as e:
         db_session.status = SessionStatus.ERROR
+        logger.error("Session creation failed", error=str(e), session_id=db_session.id)
         raise HTTPException(status_code=500, detail=f"Session creation failed: {str(e)}")
     finally:
         await liveavatar.close()
@@ -178,21 +194,32 @@ async def start_session(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Start streaming for a created session.
+    Start streaming for a created session (if not auto-started).
 
     Calls LiveAvatar API to begin avatar rendering in the LiveKit room.
+    Note: create_session() already calls start automatically.
     """
     db_session = await _get_session(session_id, tenant.id, db)
 
-    if not db_session.liveavatar_session_id:
-        raise HTTPException(status_code=400, detail="Session has no LiveAvatar session ID")
+    if not db_session.liveavatar_session_token:
+        raise HTTPException(status_code=400, detail="Session has no LiveAvatar session token")
 
     liveavatar = LiveAvatarClient()
     try:
-        result = await liveavatar.start_session(db_session.liveavatar_session_id)
+        start_result = await liveavatar.start_session(db_session.liveavatar_session_token)
+
+        # Update DB with LiveKit details
+        db_session.livekit_url = start_result.livekit_url or ""
+        db_session.livekit_token = start_result.livekit_client_token or ""
+        db_session.ws_url = start_result.ws_url or ""
         db_session.status = SessionStatus.ACTIVE
         db_session.started_at = datetime.utcnow()
-        return {"status": "started", "data": result}
+
+        return {
+            "status": "started",
+            "livekit_url": db_session.livekit_url,
+            "livekit_token": db_session.livekit_token,
+        }
     finally:
         await liveavatar.close()
 
@@ -211,10 +238,10 @@ async def stop_session(
     db_session = await _get_session(session_id, tenant.id, db)
 
     # Stop LiveAvatar session
-    if db_session.liveavatar_session_id:
+    if db_session.liveavatar_session_token:
         liveavatar = LiveAvatarClient()
         try:
-            await liveavatar.stop_session(db_session.liveavatar_session_id)
+            await liveavatar.stop_session(db_session.liveavatar_session_token)
         except Exception:
             pass
         finally:
@@ -275,12 +302,12 @@ async def keep_alive(
     """Reset the idle timer for an active session."""
     db_session = await _get_session(session_id, tenant.id, db)
 
-    if not db_session.liveavatar_session_id:
-        raise HTTPException(status_code=400, detail="No active LiveAvatar session")
+    if not db_session.liveavatar_session_token:
+        raise HTTPException(status_code=400, detail="No active LiveAvatar session token")
 
     liveavatar = LiveAvatarClient()
     try:
-        await liveavatar.keep_alive(db_session.liveavatar_session_id)
+        await liveavatar.keep_alive(db_session.liveavatar_session_token)
         return {"status": "alive"}
     finally:
         await liveavatar.close()

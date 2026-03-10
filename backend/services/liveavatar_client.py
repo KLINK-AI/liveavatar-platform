@@ -36,16 +36,23 @@ settings = get_settings()
 
 @dataclass
 class LiveAvatarSession:
-    """Represents an active LiveAvatar LITE Mode session."""
+    """Result from Create Session Token — only session_id + session_token."""
 
     session_id: str
     session_token: str
-    ws_url: str                          # WebSocket URL for command events
-    livekit_url: Optional[str] = None    # LiveKit WebRTC URL
-    livekit_client_token: Optional[str] = None  # Token for frontend client
-    livekit_agent_token: Optional[str] = None   # Token for our agent
-    max_session_duration: Optional[int] = None
     is_sandbox: bool = False
+
+
+@dataclass
+class LiveAvatarStartResult:
+    """Result from Start Session — contains LiveKit connection details."""
+
+    session_id: str
+    livekit_url: Optional[str] = None
+    livekit_client_token: Optional[str] = None
+    livekit_agent_token: Optional[str] = None
+    max_session_duration: Optional[int] = None
+    ws_url: Optional[str] = None
 
 
 class LiveAvatarClient:
@@ -146,70 +153,97 @@ class LiveAvatarClient:
         session = LiveAvatarSession(
             session_id=session_data["session_id"],
             session_token=session_data.get("session_token", session_data.get("token", "")),
-            ws_url=session_data.get("ws_url", ""),
-            livekit_url=session_data.get("livekit_url", session_data.get("url", "")),
-            livekit_client_token=session_data.get(
-                "livekit_client_token",
-                session_data.get("access_token", ""),
-            ),
-            livekit_agent_token=session_data.get("livekit_agent_token"),
-            max_session_duration=session_data.get("max_session_duration"),
             is_sandbox=is_sandbox,
         )
 
         logger.info(
             "LiveAvatar LITE session token created",
             session_id=session.session_id,
-            ws_url=session.ws_url[:50] if session.ws_url else "none",
-            livekit_url=session.livekit_url[:50] if session.livekit_url else "none",
+            has_token=bool(session.session_token),
         )
 
         return session
 
-    async def start_session(self, session_id: str) -> dict:
+    async def start_session(self, session_token: str) -> LiveAvatarStartResult:
         """
         Step 2: Start the avatar streaming session.
 
         Must be called after create_session_token.
-        The avatar becomes visible in the LiveKit room.
+        Uses the session_token as Bearer auth.
+        Returns LiveKit connection details for frontend + agent.
 
         Args:
-            session_id: Session ID from create_session_token
+            session_token: Session token from create_session_token
 
         Returns:
-            dict with start confirmation data
+            LiveAvatarStartResult with livekit_url, livekit_client_token, ws_url etc.
         """
-        client = await self._get_client()
+        # Start Session uses Bearer token auth (the session_token), not X-API-KEY
+        async with httpx.AsyncClient(
+            base_url=self.base_url,
+            headers={
+                "Authorization": f"Bearer {session_token}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            timeout=30.0,
+        ) as client:
+            response = await client.post("/v1/sessions/start")
+            response.raise_for_status()
+            data = response.json()
 
-        response = await client.post("/v1/sessions/start", json={
-            "session_id": session_id,
-        })
-        response.raise_for_status()
-        data = response.json()
+        # Handle API error responses
+        if data.get("error") or data.get("code", 100) != 100:
+            raise LiveAvatarError(
+                f"Failed to start session: {data.get('message', data.get('error', 'Unknown'))}"
+            )
 
-        logger.info("LiveAvatar session started", session_id=session_id)
-        return data.get("data", data)
+        session_data = data.get("data", data)
 
-    async def stop_session(self, session_id: str) -> dict:
+        result = LiveAvatarStartResult(
+            session_id=session_data.get("session_id", ""),
+            livekit_url=session_data.get("livekit_url"),
+            livekit_client_token=session_data.get("livekit_client_token"),
+            livekit_agent_token=session_data.get("livekit_agent_token"),
+            max_session_duration=session_data.get("max_session_duration"),
+            ws_url=session_data.get("ws_url"),
+        )
+
+        logger.info(
+            "LiveAvatar session started",
+            session_id=result.session_id,
+            livekit_url=result.livekit_url[:50] if result.livekit_url else "none",
+            ws_url=result.ws_url[:50] if result.ws_url else "none",
+            has_client_token=bool(result.livekit_client_token),
+            has_agent_token=bool(result.livekit_agent_token),
+        )
+
+        return result
+
+    async def stop_session(self, session_token: str) -> dict:
         """
         Stop and close a streaming session.
 
         Releases all resources. The avatar disappears from LiveKit.
 
         Args:
-            session_id: Active session ID
+            session_token: Session token (used as Bearer auth)
         """
-        client = await self._get_client()
+        async with httpx.AsyncClient(
+            base_url=self.base_url,
+            headers={
+                "Authorization": f"Bearer {session_token}",
+                "Accept": "application/json",
+            },
+            timeout=30.0,
+        ) as client:
+            response = await client.post("/v1/sessions/stop")
+            response.raise_for_status()
 
-        response = await client.post("/v1/sessions/stop", json={
-            "session_id": session_id,
-        })
-        response.raise_for_status()
-
-        logger.info("LiveAvatar session stopped", session_id=session_id)
+        logger.info("LiveAvatar session stopped")
         return response.json().get("data", {})
 
-    async def keep_alive(self, session_id: str) -> dict:
+    async def keep_alive(self, session_token: str) -> dict:
         """
         Reset the idle timer for a session.
 
@@ -217,16 +251,20 @@ class LiveAvatarClient:
         Default timeout is ~300 seconds.
 
         Args:
-            session_id: Active session ID
+            session_token: Session token (used as Bearer auth)
         """
-        client = await self._get_client()
+        async with httpx.AsyncClient(
+            base_url=self.base_url,
+            headers={
+                "Authorization": f"Bearer {session_token}",
+                "Accept": "application/json",
+            },
+            timeout=15.0,
+        ) as client:
+            response = await client.post("/v1/sessions/keep_alive")
+            response.raise_for_status()
 
-        response = await client.post("/v1/sessions/keep_alive", json={
-            "session_id": session_id,
-        })
-        response.raise_for_status()
-
-        logger.debug("Keep-alive sent", session_id=session_id)
+        logger.debug("Keep-alive sent")
         return response.json().get("data", {})
 
     async def list_public_avatars(self) -> list[dict]:
