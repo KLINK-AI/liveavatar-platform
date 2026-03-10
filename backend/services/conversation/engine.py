@@ -17,6 +17,7 @@ OLD (removed): Text → HeyGen streaming.task (text-based lip-sync)
 """
 
 from typing import Optional, AsyncIterator
+import asyncio
 import structlog
 
 from config import get_settings
@@ -43,12 +44,22 @@ class ConversationEngine:
         self.rag = RAGPipeline()
         self._memories: dict[str, ConversationMemory] = {}
         self._ws_managers: dict[str, LiveAvatarWSManager] = {}
+        self._session_languages: dict[str, str] = {}  # session_id → language code
 
     def _get_memory(self, session_id: str) -> ConversationMemory:
         """Get or create conversation memory for a session."""
         if session_id not in self._memories:
             self._memories[session_id] = ConversationMemory()
         return self._memories[session_id]
+
+    def set_session_language(self, session_id: str, language: str):
+        """Set the language for a session. Used by all subsequent LLM calls."""
+        self._session_languages[session_id] = language
+        logger.info("Session language set", session_id=session_id, language=language)
+
+    def get_session_language(self, session_id: str) -> str:
+        """Get the language for a session (defaults to 'de')."""
+        return self._session_languages.get(session_id, "de")
 
     def register_ws_manager(self, session_id: str, ws_manager: LiveAvatarWSManager):
         """
@@ -179,12 +190,14 @@ class ConversationEngine:
                 )
                 sources = [{"source": r["source"], "score": r["score"]} for r in results]
 
-        # Step 2: Build prompt
+        # Step 2: Build prompt (with session language)
+        session_language = self.get_session_language(session_id)
         messages = ContextBuilder.build_messages(
             system_prompt=tenant.system_prompt,
             user_message=user_message,
             rag_context=rag_context,
             history=memory.get_history(),
+            language=session_language,
         )
 
         # Step 3: LLM Call
@@ -250,12 +263,14 @@ class ConversationEngine:
                 kb.qdrant_collection, user_message
             )
 
-        # Build prompt
+        # Build prompt (with session language)
+        session_language = self.get_session_language(session_id)
         messages = ContextBuilder.build_messages(
             system_prompt=tenant.system_prompt,
             user_message=user_message,
             rag_context=rag_context,
             history=memory.get_history(),
+            language=session_language,
         )
 
         # Stream LLM response
@@ -316,6 +331,9 @@ class ConversationEngine:
 
         Returns True if greeting was spoken by the avatar.
         """
+        # Also set the session language (in case it wasn't set via _setup_session_services yet)
+        self.set_session_language(session_id, language)
+
         # Get greeting text for selected language
         greeting = None
         if language == tenant.default_language:
@@ -338,6 +356,15 @@ class ConversationEngine:
             greeting_length=len(greeting),
         )
 
+        # Wait for WebSocket manager to be ready (background task may still be connecting)
+        sent = False
+        for attempt in range(10):  # up to ~10 seconds
+            ws_manager = self._ws_managers.get(session_id)
+            if ws_manager and ws_manager.is_connected:
+                break
+            logger.info("Waiting for WS manager...", session_id=session_id, attempt=attempt + 1)
+            await asyncio.sleep(1)
+
         # Send greeting as avatar speech (TTS → WebSocket → Avatar)
         sent = await self._send_audio_to_avatar(
             session_id=session_id,
@@ -353,10 +380,11 @@ class ConversationEngine:
         return sent
 
     def clear_memory(self, session_id: str):
-        """Clear conversation history for a session."""
+        """Clear conversation history and language for a session."""
         if session_id in self._memories:
             self._memories[session_id].clear()
             del self._memories[session_id]
+        self._session_languages.pop(session_id, None)
 
     async def close(self):
         """Release all resources."""

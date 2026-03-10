@@ -364,8 +364,9 @@ async def _setup_session_services(
         # Register in conversation engine (shared singleton)
         engine = get_engine()
         engine.register_ws_manager(session_id, ws_manager)
+        engine.set_session_language(session_id, language)
 
-        logger.info("WebSocket connected for session", session_id=session_id)
+        logger.info("WebSocket connected for session", session_id=session_id, language=language)
 
     except Exception as e:
         logger.error(

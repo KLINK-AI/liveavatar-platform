@@ -289,7 +289,7 @@ export default function AvatarPage() {
 
                 {/* Start overlay */}
                 {pageState === 'preview' && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/30">
+                  <div className="absolute inset-0 flex flex-col items-center justify-end pb-12 bg-black/30">
                     <button
                       onClick={handleStartClick}
                       className="group flex items-center gap-3 px-8 py-4 rounded-2xl text-white font-semibold text-lg shadow-xl transition-all hover:scale-105 active:scale-95"
