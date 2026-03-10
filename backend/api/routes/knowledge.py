@@ -25,7 +25,11 @@ from models.tenant import Tenant
 from models.knowledge_base import KnowledgeBase, Document, DocumentType, DocumentStatus
 from api.middleware.auth import get_current_tenant
 from services.rag.pipeline import RAGPipeline
+from services.llm.provider_factory import LLMProviderFactory
+from services.llm.base import LLMMessage
+import structlog
 
+logger = structlog.get_logger()
 router = APIRouter()
 
 
@@ -52,6 +56,7 @@ class IndexAPIRequest(BaseModel):
 class SearchRequest(BaseModel):
     query: str
     top_k: int = 5
+    generate_answer: bool = True
 
 
 @router.post("/")
@@ -336,7 +341,7 @@ async def search_knowledge_base(
     tenant: Tenant = Depends(get_current_tenant),
     db: AsyncSession = Depends(get_db),
 ):
-    """Test search against the knowledge base (for debugging/testing)."""
+    """Test search against the knowledge base — returns RAG chunks + optional LLM answer."""
     kb = await _get_kb(kb_id, tenant.id, db)
 
     rag = RAGPipeline()
@@ -346,14 +351,53 @@ async def search_knowledge_base(
             query=request.query,
             top_k=request.top_k,
         )
+        # Build context string from search results
+        context = await rag.build_context(
+            collection_name=kb.qdrant_collection,
+            query=request.query,
+            top_k=request.top_k,
+        )
     finally:
         await rag.close()
 
-    return {
+    response_data = {
         "query": request.query,
         "results": results,
         "count": len(results),
     }
+
+    # Generate LLM answer from the search context
+    if request.generate_answer and results:
+        try:
+            llm = LLMProviderFactory.get_provider_for_tenant(tenant)
+            system_prompt = tenant.system_prompt or (
+                "Du bist ein hilfreicher Assistent. Beantworte die Frage basierend "
+                "auf dem bereitgestellten Kontext. Antworte auf Deutsch, wenn die "
+                "Frage auf Deutsch gestellt wird."
+            )
+            messages = [
+                LLMMessage(role="system", content=system_prompt),
+                LLMMessage(
+                    role="system",
+                    content=f"KONTEXT aus der Wissensbasis:\n\n{context}",
+                ),
+                LLMMessage(role="user", content=request.query),
+            ]
+
+            llm_response = await llm.chat(
+                messages=messages,
+                temperature=0.7,
+                max_tokens=800,
+            )
+            response_data["answer"] = llm_response.content
+            response_data["llm_model"] = llm_response.model
+            response_data["llm_provider"] = llm_response.provider
+        except Exception as e:
+            logger.error("llm_answer_generation_failed", error=str(e))
+            response_data["answer"] = None
+            response_data["answer_error"] = str(e)
+
+    return response_data
 
 
 async def _get_kb(kb_id: str, tenant_id: str, db: AsyncSession) -> KnowledgeBase:

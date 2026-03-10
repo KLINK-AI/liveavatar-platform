@@ -22,6 +22,8 @@ export default function KnowledgeBasePage() {
   const [crawlSite, setCrawlSite] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
+  const [searchAnswer, setSearchAnswer] = useState<string | null>(null)
+  const [searchModel, setSearchModel] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -107,9 +109,15 @@ export default function KnowledgeBasePage() {
   const handleSearch = async () => {
     if (!selectedKb || !searchQuery) return
     setIsLoading(true)
+    setSearchAnswer(null)
+    setSearchModel(null)
     try {
       const result = await knowledgeApi.search(selectedKb.id, searchQuery, token)
       setSearchResults(result.results || [])
+      if (result.answer) {
+        setSearchAnswer(result.answer)
+        setSearchModel(result.llm_model ? `${result.llm_provider}/${result.llm_model}` : null)
+      }
     } catch (e: any) {
       alert(`Suche fehlgeschlagen: ${e.message}`)
       setSearchResults([])
@@ -310,8 +318,27 @@ export default function KnowledgeBasePage() {
                       {isLoading ? 'Läuft...' : 'Suchen'}
                     </button>
                   </div>
+                  {/* LLM-Generated Answer */}
+                  {searchAnswer && (
+                    <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-xl">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-semibold text-green-800">KI-generierte Antwort</span>
+                        {searchModel && (
+                          <span className="text-xs text-green-600 bg-green-100 px-2 py-0.5 rounded">
+                            {searchModel}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{searchAnswer}</p>
+                    </div>
+                  )}
+
+                  {/* RAG Chunks */}
                   {searchResults.length > 0 && (
                     <div className="space-y-3">
+                      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                        Gefundene Quellen ({searchResults.length})
+                      </h4>
                       {searchResults.map((r: any, i: number) => (
                         <div key={i} className="p-3 bg-blue-50 rounded-lg text-sm">
                           <div className="flex justify-between mb-1">
