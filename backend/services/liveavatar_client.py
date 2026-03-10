@@ -192,8 +192,18 @@ class LiveAvatarClient:
             response.raise_for_status()
             data = response.json()
 
-        # Handle API error responses
-        if data.get("error") or data.get("code", 100) != 100:
+        logger.info(
+            "LiveAvatar start_session raw response",
+            status_code=response.status_code,
+            code=data.get("code"),
+            message=data.get("message"),
+            has_data=bool(data.get("data")),
+            data_keys=list(data.get("data", {}).keys()) if isinstance(data.get("data"), dict) else "not-dict",
+        )
+
+        # Only raise on explicit error — code 100 is success per docs,
+        # but we also accept any HTTP 2xx as success
+        if data.get("error"):
             raise LiveAvatarError(
                 f"Failed to start session: {data.get('message', data.get('error', 'Unknown'))}"
             )
