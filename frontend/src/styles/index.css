@@ -10,12 +10,21 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Unified avatar wrapper — same size for preview AND active player */
+.avatar-wrapper {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
 /* Custom styles for avatar player */
 .avatar-container {
   position: relative;
   width: 100%;
-  max-width: 640px;
-  aspect-ratio: 16 / 9;
+  height: 100%;
   background: #000;
   border-radius: 12px;
   overflow: hidden;
@@ -27,12 +36,11 @@ body {
   object-fit: cover;
 }
 
-/* Chat interface styles */
+/* Chat interface styles — height syncs with player via grid */
 .chat-container {
   display: flex;
   flex-direction: column;
   height: 100%;
-  max-height: 600px;
 }
 
 .chat-messages {

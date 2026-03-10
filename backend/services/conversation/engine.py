@@ -356,15 +356,6 @@ class ConversationEngine:
             greeting_length=len(greeting),
         )
 
-        # Wait for WebSocket manager to be ready (background task may still be connecting)
-        sent = False
-        for attempt in range(10):  # up to ~10 seconds
-            ws_manager = self._ws_managers.get(session_id)
-            if ws_manager and ws_manager.is_connected:
-                break
-            logger.info("Waiting for WS manager...", session_id=session_id, attempt=attempt + 1)
-            await asyncio.sleep(1)
-
         # Send greeting as avatar speech (TTS → WebSocket → Avatar)
         sent = await self._send_audio_to_avatar(
             session_id=session_id,

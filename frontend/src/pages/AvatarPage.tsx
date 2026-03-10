@@ -127,14 +127,8 @@ export default function AvatarPage() {
         }
       }, 60000)
 
-      // Step 5: Send greeting after a short delay (let avatar stream connect)
-      setTimeout(async () => {
-        try {
-          await sessionApi.sendGreeting(newSession.sessionId, tenantConfig.api_key, language)
-        } catch (e) {
-          console.warn('Greeting failed:', e)
-        }
-      }, 3000)
+      // Greeting is now sent automatically by the backend
+      // immediately after WebSocket connects (no delay needed)
 
     } catch (e: any) {
       sessionStartedRef.current = false
@@ -262,64 +256,66 @@ export default function AvatarPage() {
           )}
         </div>
 
-        {/* Main Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Avatar Video / Preview */}
+        {/* Main Layout — grid with matched heights */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+          {/* Avatar Video / Preview — unified wrapper ensures consistent size */}
           <div>
-            {session?.livekitUrl && session?.livekitToken ? (
-              /* Active session: show live avatar video */
-              <AvatarPlayer
-                livekitUrl={session.livekitUrl}
-                livekitToken={session.livekitToken}
-              />
-            ) : (
-              /* Preview / Start screen */
-              <div className="aspect-video bg-gray-900 rounded-xl overflow-hidden relative flex items-center justify-center">
-                {/* Preview Image */}
-                {tenantConfig?.avatar_preview_image ? (
-                  <img
-                    src={tenantConfig.avatar_preview_image}
-                    alt={`${tenantConfig.name} Avatar`}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  /* Fallback: gradient background */
-                  <div className="w-full h-full bg-gradient-to-br from-gray-800 to-gray-900" />
-                )}
+            <div className="avatar-wrapper shadow-2xl">
+              {session?.livekitUrl && session?.livekitToken ? (
+                /* Active session: show live avatar video */
+                <AvatarPlayer
+                  livekitUrl={session.livekitUrl}
+                  livekitToken={session.livekitToken}
+                />
+              ) : (
+                /* Preview / Start screen */
+                <>
+                  {/* Preview Image */}
+                  {tenantConfig?.avatar_preview_image ? (
+                    <img
+                      src={tenantConfig.avatar_preview_image}
+                      alt={`${tenantConfig.name} Avatar`}
+                      className="w-full h-full object-cover absolute inset-0"
+                    />
+                  ) : (
+                    /* Fallback: gradient background */
+                    <div className="w-full h-full bg-gradient-to-br from-gray-800 to-gray-900 absolute inset-0" />
+                  )}
 
-                {/* Start overlay */}
-                {pageState === 'preview' && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-end pb-12 bg-black/30">
-                    <button
-                      onClick={handleStartClick}
-                      className="group flex items-center gap-3 px-8 py-4 rounded-2xl text-white font-semibold text-lg shadow-xl transition-all hover:scale-105 active:scale-95"
-                      style={{ backgroundColor: primaryColor }}
-                    >
-                      <Play className="w-6 h-6 group-hover:scale-110 transition-transform" />
-                      Gespräch starten
-                    </button>
-                    <p className="text-white/70 text-sm mt-3">
-                      {tenantConfig?.name || 'Avatar Assistent'}
-                    </p>
-                  </div>
-                )}
-
-                {/* Connecting spinner */}
-                {pageState === 'connecting' && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-                    <div className="text-center text-white">
-                      <div className="animate-spin w-12 h-12 border-3 border-white border-t-transparent rounded-full mx-auto mb-3" />
-                      <p className="font-medium">Avatar wird geladen...</p>
-                      {selectedLanguage && (
-                        <p className="text-sm text-white/60 mt-1">
-                          Sprache: {selectedLanguage.toUpperCase()}
-                        </p>
-                      )}
+                  {/* Start overlay */}
+                  {pageState === 'preview' && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-end pb-[15%] bg-black/30">
+                      <button
+                        onClick={handleStartClick}
+                        className="group flex items-center gap-3 px-8 py-4 rounded-2xl text-white font-semibold text-lg shadow-xl transition-all hover:scale-105 active:scale-95"
+                        style={{ backgroundColor: primaryColor }}
+                      >
+                        <Play className="w-6 h-6 group-hover:scale-110 transition-transform" />
+                        Gespräch starten
+                      </button>
+                      <p className="text-white/70 text-sm mt-3">
+                        {tenantConfig?.name || 'Avatar Assistent'}
+                      </p>
                     </div>
-                  </div>
-                )}
-              </div>
-            )}
+                  )}
+
+                  {/* Connecting spinner */}
+                  {pageState === 'connecting' && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                      <div className="text-center text-white">
+                        <div className="animate-spin w-12 h-12 border-3 border-white border-t-transparent rounded-full mx-auto mb-3" />
+                        <p className="font-medium">Avatar wird geladen...</p>
+                        {selectedLanguage && (
+                          <p className="text-sm text-white/60 mt-1">
+                            Sprache: {selectedLanguage.toUpperCase()}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
 
             {/* Voice Input — only when active */}
             {isActive && (
@@ -332,8 +328,8 @@ export default function AvatarPage() {
             )}
           </div>
 
-          {/* Chat Interface */}
-          <div>
+          {/* Chat Interface — height matches the avatar wrapper via aspect ratio */}
+          <div className="lg:max-h-[calc(100vw*9/32)] lg:min-h-[280px]">
             <ChatInterface
               messages={messages}
               streamingText={streamingText}
