@@ -15,19 +15,28 @@ services:
       dockerfile: Dockerfile
     environment:
       - DATABASE_URL=${DATABASE_URL}
-      - HEYGEN_API_KEY=${HEYGEN_API_KEY}
-      - LIVEAVATAR_API_BASE=${LIVEAVATAR_API_BASE:-https://api.heygen.com}
+      # LiveAvatar LITE Mode
+      - LIVEAVATAR_API_KEY=${LIVEAVATAR_API_KEY}
+      - LIVEAVATAR_API_BASE=${LIVEAVATAR_API_BASE:-https://api.liveavatar.com}
+      # LiveKit
       - LIVEKIT_URL=${LIVEKIT_URL}
       - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
       - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
+      # LLM
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - DEFAULT_LLM_PROVIDER=${DEFAULT_LLM_PROVIDER:-openai}
       - DEFAULT_LLM_MODEL=${DEFAULT_LLM_MODEL:-gpt-4o}
+      # TTS / STT
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
+      - ELEVENLABS_DEFAULT_VOICE_ID=${ELEVENLABS_DEFAULT_VOICE_ID:-}
+      - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY:-}
+      # Vector DB / Embeddings
       - QDRANT_URL=http://qdrant:6333
       - REDIS_URL=redis://redis:6379/0
       - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-openai}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-3-small}
+      # App
       - APP_ENV=${APP_ENV:-production}
       - APP_SECRET_KEY=${APP_SECRET_KEY}
       - APP_CORS_ORIGINS=${APP_CORS_ORIGINS}
