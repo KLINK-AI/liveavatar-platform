@@ -301,6 +301,57 @@ class ConversationEngine:
 
         yield {"type": "done", "full_response": full_response}
 
+    async def send_greeting(
+        self,
+        session_id: str,
+        tenant: Tenant,
+        language: str = "de",
+    ) -> bool:
+        """
+        Send the tenant's greeting message as avatar speech.
+
+        Called after session start + language selection.
+        Uses greeting_translations for non-default languages,
+        falls back to greeting_text (default language).
+
+        Returns True if greeting was spoken by the avatar.
+        """
+        # Get greeting text for selected language
+        greeting = None
+        if language == tenant.default_language:
+            greeting = tenant.greeting_text
+        elif tenant.greeting_translations:
+            greeting = tenant.greeting_translations.get(language)
+
+        # Fallback to default greeting
+        if not greeting:
+            greeting = tenant.greeting_text
+
+        if not greeting:
+            logger.info("No greeting configured", tenant=tenant.slug, language=language)
+            return False
+
+        logger.info(
+            "Sending greeting to avatar",
+            tenant=tenant.slug,
+            language=language,
+            greeting_length=len(greeting),
+        )
+
+        # Send greeting as avatar speech (TTS → WebSocket → Avatar)
+        sent = await self._send_audio_to_avatar(
+            session_id=session_id,
+            tenant=tenant,
+            text=greeting,
+        )
+
+        # Store greeting in conversation memory
+        if sent:
+            memory = self._get_memory(session_id)
+            memory.add_assistant_message(greeting)
+
+        return sent
+
     def clear_memory(self, session_id: str):
         """Clear conversation history for a session."""
         if session_id in self._memories:

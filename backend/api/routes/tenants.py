@@ -7,19 +7,24 @@ Endpoints:
 - GET  /{id}     → Get tenant details
 - PUT  /{id}     → Update tenant configuration
 - GET  /by-slug/{slug} → Public: resolve tenant by slug (incl. API key for public sessions)
+- POST /{id}/preview-image → Upload avatar preview image
+- POST /{id}/greeting → Update greeting + auto-translate
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import uuid
+import base64
+import structlog
 
 from database import get_db
 from models.tenant import Tenant
 from api.middleware.auth import get_current_tenant
 
+logger = structlog.get_logger()
 router = APIRouter()
 
 
@@ -45,6 +50,10 @@ class CreateTenantRequest(BaseModel):
     llm_api_key: Optional[str] = None
     system_prompt: Optional[str] = None
     branding: Optional[dict] = None
+    supported_languages: Optional[list[str]] = None
+    default_language: Optional[str] = None
+    greeting_text: Optional[str] = None
+    greeting_translations: Optional[dict] = None
 
 
 class UpdateTenantRequest(BaseModel):
@@ -60,6 +69,17 @@ class UpdateTenantRequest(BaseModel):
     system_prompt: Optional[str] = None
     branding: Optional[dict] = None
     is_active: Optional[bool] = None
+    supported_languages: Optional[list[str]] = None
+    default_language: Optional[str] = None
+    greeting_text: Optional[str] = None
+    greeting_translations: Optional[dict] = None
+
+
+class UpdateGreetingRequest(BaseModel):
+    greeting_text: str
+    default_language: str = "de"
+    auto_translate: bool = True
+    target_languages: Optional[list[str]] = None
 
 
 class TenantResponse(BaseModel):
@@ -78,6 +98,11 @@ class TenantResponse(BaseModel):
     llm_api_key_masked: Optional[str]
     system_prompt: str
     branding: Optional[dict]
+    avatar_preview_image: Optional[str]
+    supported_languages: Optional[list[str]]
+    default_language: str
+    greeting_text: Optional[str]
+    greeting_translations: Optional[dict]
     created_at: str
 
 
@@ -107,6 +132,10 @@ async def create_tenant(
         llm_api_key=request.llm_api_key,
         system_prompt=request.system_prompt or Tenant.system_prompt.default.arg,
         branding=request.branding,
+        supported_languages=request.supported_languages or ["de"],
+        default_language=request.default_language or "de",
+        greeting_text=request.greeting_text,
+        greeting_translations=request.greeting_translations or {},
     )
     db.add(tenant)
     await db.flush()
@@ -160,6 +189,93 @@ async def update_tenant(
     return _tenant_to_response(tenant)
 
 
+@router.post("/{tenant_id}/preview-image")
+async def upload_preview_image(
+    tenant_id: str,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Upload an avatar preview image for a tenant.
+    Accepts PNG, JPG, WebP. Stored as base64 data URI.
+    """
+    result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    # Validate file type
+    allowed_types = {"image/png", "image/jpeg", "image/webp"}
+    if file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File type {file.content_type} not allowed. Use PNG, JPG, or WebP."
+        )
+
+    # Read and encode as base64 data URI
+    content = await file.read()
+    if len(content) > 5 * 1024 * 1024:  # 5MB limit
+        raise HTTPException(status_code=400, detail="File too large. Max 5MB.")
+
+    b64 = base64.b64encode(content).decode("utf-8")
+    data_uri = f"data:{file.content_type};base64,{b64}"
+
+    tenant.avatar_preview_image = data_uri
+
+    logger.info(
+        "Preview image uploaded",
+        tenant=tenant.slug,
+        size_kb=len(content) // 1024,
+        content_type=file.content_type,
+    )
+
+    return {"status": "ok", "size_kb": len(content) // 1024}
+
+
+@router.post("/{tenant_id}/greeting")
+async def update_greeting(
+    tenant_id: str,
+    request: UpdateGreetingRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Update greeting text and optionally auto-translate to target languages.
+    Uses OpenAI to translate the greeting text.
+    """
+    result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    tenant.greeting_text = request.greeting_text
+    tenant.default_language = request.default_language
+
+    # Auto-translate if requested
+    if request.auto_translate:
+        target_langs = request.target_languages or [
+            lang for lang in (tenant.supported_languages or ["de"])
+            if lang != request.default_language
+        ]
+
+        if target_langs:
+            translations = await _auto_translate_greeting(
+                text=request.greeting_text,
+                source_lang=request.default_language,
+                target_langs=target_langs,
+                tenant=tenant,
+            )
+            # Merge with existing translations
+            existing = tenant.greeting_translations or {}
+            existing.update(translations)
+            tenant.greeting_translations = existing
+
+    return {
+        "greeting_text": tenant.greeting_text,
+        "default_language": tenant.default_language,
+        "greeting_translations": tenant.greeting_translations,
+    }
+
+
 @router.get("/by-slug/{slug}")
 async def get_tenant_by_slug(
     slug: str,
@@ -183,7 +299,67 @@ async def get_tenant_by_slug(
         "branding": tenant.branding,
         "has_avatar": bool(tenant.liveavatar_avatar_id),
         "api_key": tenant.api_key,
+        "avatar_preview_image": tenant.avatar_preview_image,
+        "supported_languages": tenant.supported_languages or ["de"],
+        "default_language": tenant.default_language or "de",
+        "greeting_text": tenant.greeting_text,
+        "greeting_translations": tenant.greeting_translations or {},
     }
+
+
+async def _auto_translate_greeting(
+    text: str,
+    source_lang: str,
+    target_langs: list[str],
+    tenant: Tenant,
+) -> dict[str, str]:
+    """
+    Translate greeting text to target languages using the tenant's LLM.
+    Returns dict of {lang_code: translated_text}.
+    """
+    from services.llm.provider_factory import LLMProviderFactory
+    from services.llm.base import LLMMessage
+
+    LANG_NAMES = {
+        "de": "German", "en": "English", "fr": "French", "es": "Spanish",
+        "it": "Italian", "nl": "Dutch", "pt": "Portuguese", "pl": "Polish",
+        "ru": "Russian", "uk": "Ukrainian", "tr": "Turkish", "ar": "Arabic",
+        "zh": "Chinese", "ja": "Japanese", "ko": "Korean", "hi": "Hindi",
+        "sv": "Swedish", "no": "Norwegian", "da": "Danish", "fi": "Finnish",
+        "el": "Greek", "cs": "Czech", "ro": "Romanian", "hu": "Hungarian",
+        "bg": "Bulgarian", "hr": "Croatian", "sk": "Slovak", "sl": "Slovenian",
+    }
+
+    translations = {}
+    llm = LLMProviderFactory.get_provider_for_tenant(tenant)
+
+    for lang in target_langs:
+        lang_name = LANG_NAMES.get(lang, lang)
+        source_name = LANG_NAMES.get(source_lang, source_lang)
+
+        try:
+            response = await llm.chat(
+                messages=[
+                    LLMMessage(
+                        role="system",
+                        content=(
+                            f"You are a professional translator. "
+                            f"Translate the following greeting from {source_name} to {lang_name}. "
+                            f"Keep the same tone and meaning. Return ONLY the translated text, nothing else."
+                        ),
+                    ),
+                    LLMMessage(role="user", content=text),
+                ],
+                model=tenant.llm_model,
+                temperature=0.3,
+                max_tokens=200,
+            )
+            translations[lang] = response.content.strip().strip('"').strip("'")
+            logger.info(f"Translated greeting to {lang}: {translations[lang][:50]}...")
+        except Exception as e:
+            logger.error(f"Failed to translate greeting to {lang}: {e}")
+
+    return translations
 
 
 def _tenant_to_response(tenant: Tenant) -> TenantResponse:
@@ -203,5 +379,10 @@ def _tenant_to_response(tenant: Tenant) -> TenantResponse:
         llm_api_key_masked=_mask_key(tenant.llm_api_key),
         system_prompt=tenant.system_prompt,
         branding=tenant.branding,
+        avatar_preview_image=tenant.avatar_preview_image,
+        supported_languages=tenant.supported_languages or ["de"],
+        default_language=tenant.default_language or "de",
+        greeting_text=tenant.greeting_text,
+        greeting_translations=tenant.greeting_translations or {},
         created_at=tenant.created_at.isoformat(),
     )

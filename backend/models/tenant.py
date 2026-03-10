@@ -53,6 +53,33 @@ class Tenant(Base):
         default="Du bist ein freundlicher und hilfreicher Assistent. Antworte präzise und verständlich auf Deutsch."
     )
 
+    # Avatar Preview Image (shown before session starts)
+    avatar_preview_image: Mapped[str | None] = mapped_column(
+        Text, nullable=True,
+        comment="Base64-encoded preview image or URL, shown instead of black screen"
+    )
+
+    # Multi-Language Support
+    supported_languages: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, default=lambda: ["de"],
+        comment='JSON array of supported language codes, e.g. ["de","en","fr"]'
+    )
+    default_language: Mapped[str] = mapped_column(
+        String(10), default="de",
+        comment="Default/primary language for this tenant"
+    )
+
+    # Greeting System
+    greeting_text: Mapped[str | None] = mapped_column(
+        Text, nullable=True,
+        default="Hallo, ich bin Ihr digitaler Assistent und stehe Ihnen für Fragen zur Verfügung.",
+        comment="Greeting text in the default language"
+    )
+    greeting_translations: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, default=lambda: {},
+        comment='Greeting translations: {"en": "Hello...", "fr": "Bonjour..."}'
+    )
+
     # White-Label Branding
     branding: Mapped[dict | None] = mapped_column(
         JSON, nullable=True,

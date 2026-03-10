@@ -60,11 +60,14 @@ async function apiUpload(endpoint: string, file: File, token: string) {
 
 // --- Session API ---
 export const sessionApi = {
-  create: (apiKey: string, avatarId?: string) =>
+  create: (apiKey: string, options?: { avatarId?: string; language?: string }) =>
     apiRequest('/sessions/', {
       method: 'POST',
       apiKey,
-      body: { avatar_id: avatarId },
+      body: {
+        avatar_id: options?.avatarId,
+        language: options?.language || 'de',
+      },
     }),
 
   get: (sessionId: string, apiKey: string) =>
@@ -75,6 +78,12 @@ export const sessionApi = {
 
   keepAlive: (sessionId: string, apiKey: string) =>
     apiRequest(`/sessions/${sessionId}/keep-alive`, { method: 'POST', apiKey }),
+
+  sendGreeting: (sessionId: string, apiKey: string, language: string) =>
+    apiRequest(`/sessions/${sessionId}/greeting?language=${language}`, {
+      method: 'POST',
+      apiKey,
+    }),
 }
 
 // --- Conversation API ---

@@ -282,6 +282,36 @@ async def get_session(
     )
 
 
+@router.post("/{session_id}/greeting")
+async def send_greeting(
+    session_id: str,
+    language: str = "de",
+    tenant: Tenant = Depends(get_current_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Send the tenant's greeting message to the avatar.
+    Called after session start + language selection.
+    The avatar speaks the greeting in the selected language.
+    """
+    db_session = await _get_session(session_id, tenant.id, db)
+
+    if db_session.status != SessionStatus.ACTIVE:
+        raise HTTPException(status_code=400, detail="Session is not active")
+
+    engine = get_engine()
+    sent = await engine.send_greeting(
+        session_id=session_id,
+        tenant=tenant,
+        language=language,
+    )
+
+    return {
+        "status": "sent" if sent else "no_greeting",
+        "language": language,
+    }
+
+
 @router.post("/{session_id}/keep-alive")
 async def keep_alive(
     session_id: str,
