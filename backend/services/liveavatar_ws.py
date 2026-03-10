@@ -89,15 +89,33 @@ class LiveAvatarWSManager:
                 close_timeout=5,
             )
             self._connected = True
-            self.session_state = "connected"
+            self.session_state = "connecting"
 
             logger.info(
-                "LiveAvatar WebSocket connected",
+                "LiveAvatar WebSocket connected (waiting for session.state_updated=connected)",
                 session_id=self.session_id,
             )
 
             # Start receiving events in background
             self._receive_task = asyncio.create_task(self._receive_loop())
+
+            # Wait for server to confirm "connected" state (required before sending events)
+            for _ in range(50):  # up to 5 seconds
+                if self.session_state == "connected":
+                    break
+                await asyncio.sleep(0.1)
+
+            if self.session_state != "connected":
+                logger.warning(
+                    "Session state not 'connected' after 5s, proceeding anyway",
+                    state=self.session_state,
+                    session_id=self.session_id,
+                )
+            else:
+                logger.info(
+                    "LiveAvatar session confirmed connected",
+                    session_id=self.session_id,
+                )
 
             # Start heartbeat
             if auto_heartbeat:
@@ -232,9 +250,10 @@ class LiveAvatarWSManager:
         if not self.is_connected:
             raise RuntimeError("WebSocket not connected")
 
+        # LITE Mode event format: {"type": "event.name", ...data}
+        # session_id is not needed — the WebSocket connection is already scoped to the session
         message = json.dumps({
             "type": event_type,
-            "session_id": self.session_id,
             **data,
         })
 

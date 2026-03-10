@@ -32,25 +32,14 @@ from api.middleware.auth import get_current_tenant
 from services.liveavatar_client import LiveAvatarClient, LiveAvatarError, LiveAvatarStartResult
 from services.liveavatar_ws import LiveAvatarWSManager
 from services.livekit_manager import LiveKitManager
-from services.livekit_agent import LiveKitAgentService
-from services.conversation.engine import ConversationEngine
+from services.engine_instance import get_engine
 
 logger = structlog.get_logger()
 router = APIRouter()
 
 # Active WebSocket managers and LiveKit agents per session
 _ws_managers: dict[str, LiveAvatarWSManager] = {}
-_livekit_agents: dict[str, LiveKitAgentService] = {}
-
-# Shared conversation engine
-_engine: Optional[ConversationEngine] = None
-
-
-def get_engine() -> ConversationEngine:
-    global _engine
-    if _engine is None:
-        _engine = ConversationEngine()
-    return _engine
+_livekit_agents: dict[str, object] = {}  # LiveKitAgentService if available
 
 
 class CreateSessionRequest(BaseModel):
@@ -329,11 +318,11 @@ async def _setup_session_services(
     Background task: connect WebSocket + start LiveKit agent.
 
     Called after session token is created. Sets up:
-    1. WebSocket connection to LiveAvatar for audio commands
-    2. LiveKit agent for capturing user audio → STT
+    1. WebSocket connection to LiveAvatar for audio commands (CRITICAL for lip-sync)
+    2. LiveKit agent for capturing user audio → STT (OPTIONAL, graceful fail)
     """
+    # Step 1: Connect WebSocket to LiveAvatar (CRITICAL — required for lip-sync)
     try:
-        # 1. Connect WebSocket to LiveAvatar
         ws_manager = LiveAvatarWSManager(
             ws_url=ws_url,
             session_token=session_token,
@@ -342,13 +331,24 @@ async def _setup_session_services(
         await ws_manager.connect()
         _ws_managers[session_id] = ws_manager
 
-        # Register in conversation engine
+        # Register in conversation engine (shared singleton)
         engine = get_engine()
         engine.register_ws_manager(session_id, ws_manager)
 
         logger.info("WebSocket connected for session", session_id=session_id)
 
-        # 2. Start LiveKit agent for STT
+    except Exception as e:
+        logger.error(
+            "Failed to connect WebSocket — avatar lip-sync will not work",
+            session_id=session_id,
+            error=str(e),
+        )
+        return  # Without WS, no point continuing
+
+    # Step 2: Start LiveKit agent for STT (OPTIONAL — text input still works without it)
+    try:
+        from services.livekit_agent import LiveKitAgentService
+
         agent = LiveKitAgentService(
             livekit_url=livekit_url,
             agent_token=livekit_agent_token,
@@ -366,7 +366,6 @@ async def _setup_session_services(
                     session=session_id,
                 )
                 # TODO: Auto-process transcribed speech through ConversationEngine
-                # This enables fully voice-driven conversation without REST calls
 
         agent.on_transcription(on_transcription)
         await agent.start()
@@ -374,9 +373,15 @@ async def _setup_session_services(
 
         logger.info("LiveKit STT agent started for session", session_id=session_id)
 
+    except ImportError as e:
+        logger.warning(
+            "LiveKit agent not available — STT via LiveKit disabled (text input still works)",
+            session_id=session_id,
+            error=str(e),
+        )
     except Exception as e:
-        logger.error(
-            "Failed to setup session services",
+        logger.warning(
+            "LiveKit agent failed to start — STT disabled (text input still works)",
             session_id=session_id,
             error=str(e),
         )

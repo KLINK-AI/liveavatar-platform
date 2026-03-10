@@ -25,19 +25,9 @@ from models.tenant import Tenant
 from models.session import AvatarSession, SessionStatus
 from models.conversation import Conversation, Message, MessageRole
 from api.middleware.auth import get_current_tenant
-from services.conversation.engine import ConversationEngine
+from services.engine_instance import get_engine
 
 router = APIRouter()
-
-# Shared conversation engine instance
-_engine: Optional[ConversationEngine] = None
-
-
-def get_engine() -> ConversationEngine:
-    global _engine
-    if _engine is None:
-        _engine = ConversationEngine()
-    return _engine
 
 
 class MessageRequest(BaseModel):
