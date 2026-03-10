@@ -84,36 +84,36 @@ export const tenantApi = {
 
 // --- Knowledge Base API ---
 export const knowledgeApi = {
-  list: (apiKey: string) =>
-    apiRequest('/knowledge/', { apiKey }),
+  list: (token: string) =>
+    apiRequest('/knowledge/', { token }),
 
-  create: (name: string, description: string, apiKey: string) =>
+  create: (name: string, description: string, token: string) =>
     apiRequest('/knowledge/', {
       method: 'POST',
-      apiKey,
+      token,
       body: { name, description },
     }),
 
-  listDocuments: (kbId: string, apiKey: string) =>
-    apiRequest(`/knowledge/${kbId}/documents`, { apiKey }),
+  listDocuments: (kbId: string, token: string) =>
+    apiRequest(`/knowledge/${kbId}/documents`, { token }),
 
-  indexUrl: (kbId: string, url: string, crawlSite: boolean, apiKey: string) =>
+  indexUrl: (kbId: string, url: string, crawlSite: boolean, token: string) =>
     apiRequest(`/knowledge/${kbId}/urls`, {
       method: 'POST',
-      apiKey,
+      token,
       body: { url, crawl_site: crawlSite },
     }),
 
-  deleteDocument: (kbId: string, docId: string, apiKey: string) =>
+  deleteDocument: (kbId: string, docId: string, token: string) =>
     apiRequest(`/knowledge/${kbId}/documents/${docId}`, {
       method: 'DELETE',
-      apiKey,
+      token,
     }),
 
-  search: (kbId: string, query: string, apiKey: string) =>
+  search: (kbId: string, query: string, token: string) =>
     apiRequest(`/knowledge/${kbId}/search`, {
       method: 'POST',
-      apiKey,
+      token,
       body: { query },
     }),
 }

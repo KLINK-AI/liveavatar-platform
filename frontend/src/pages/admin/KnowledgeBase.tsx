@@ -9,7 +9,7 @@ import { knowledgeApi } from '../../lib/api'
 
 export default function KnowledgeBasePage() {
   const { tenantId } = useParams<{ tenantId: string }>()
-  const apiKey = localStorage.getItem('current_api_key') || ''
+  const token = localStorage.getItem('admin_token') || ''
 
   const [kbs, setKbs] = useState<any[]>([])
   const [selectedKb, setSelectedKb] = useState<any>(null)
@@ -23,21 +23,21 @@ export default function KnowledgeBasePage() {
   const [isLoading, setIsLoading] = useState(false)
 
   useEffect(() => {
-    if (apiKey) {
-      knowledgeApi.list(apiKey).then(setKbs).catch(console.error)
+    if (token) {
+      knowledgeApi.list(token).then(setKbs).catch(console.error)
     }
-  }, [apiKey])
+  }, [token])
 
   useEffect(() => {
-    if (selectedKb && apiKey) {
-      knowledgeApi.listDocuments(selectedKb.id, apiKey).then(setDocuments).catch(console.error)
+    if (selectedKb && token) {
+      knowledgeApi.listDocuments(selectedKb.id, token).then(setDocuments).catch(console.error)
     }
-  }, [selectedKb, apiKey])
+  }, [selectedKb, token])
 
   const handleCreateKb = async () => {
     if (!newKbName) return
     try {
-      const kb = await knowledgeApi.create(newKbName, '', apiKey)
+      const kb = await knowledgeApi.create(newKbName, '', token)
       setKbs([...kbs, kb])
       setShowNewKb(false)
       setNewKbName('')
@@ -50,10 +50,10 @@ export default function KnowledgeBasePage() {
     if (!selectedKb || !urlInput) return
     setIsLoading(true)
     try {
-      await knowledgeApi.indexUrl(selectedKb.id, urlInput, crawlSite, apiKey)
+      await knowledgeApi.indexUrl(selectedKb.id, urlInput, crawlSite, token)
       setUrlInput('')
       // Reload documents
-      const docs = await knowledgeApi.listDocuments(selectedKb.id, apiKey)
+      const docs = await knowledgeApi.listDocuments(selectedKb.id, token)
       setDocuments(docs)
     } catch (e: any) {
       alert(e.message)
@@ -65,7 +65,7 @@ export default function KnowledgeBasePage() {
   const handleDeleteDoc = async (docId: string) => {
     if (!selectedKb) return
     try {
-      await knowledgeApi.deleteDocument(selectedKb.id, docId, apiKey)
+      await knowledgeApi.deleteDocument(selectedKb.id, docId, token)
       setDocuments(documents.filter(d => d.id !== docId))
     } catch (e: any) {
       alert(e.message)
@@ -75,7 +75,7 @@ export default function KnowledgeBasePage() {
   const handleSearch = async () => {
     if (!selectedKb || !searchQuery) return
     try {
-      const result = await knowledgeApi.search(selectedKb.id, searchQuery, apiKey)
+      const result = await knowledgeApi.search(selectedKb.id, searchQuery, token)
       setSearchResults(result.results)
     } catch (e: any) {
       alert(e.message)

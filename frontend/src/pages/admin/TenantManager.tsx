@@ -1,24 +1,47 @@
 /**
- * Tenant Manager — Create and manage white-label tenants.
+ * Tenant Manager — Create, edit, and manage white-label tenants.
  */
 
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, Settings, Database, ArrowLeft } from 'lucide-react'
+import { Plus, Pencil, Database, ArrowLeft, X, Check } from 'lucide-react'
 import { tenantApi } from '../../lib/api'
+
+interface TenantForm {
+  name: string
+  slug: string
+  liveavatar_avatar_id: string
+  liveavatar_voice_id: string
+  llm_provider: string
+  llm_model: string
+  llm_api_key: string
+  system_prompt: string
+  elevenlabs_api_key: string
+  elevenlabs_voice_id: string
+  stt_provider: string
+}
+
+const emptyForm: TenantForm = {
+  name: '',
+  slug: '',
+  liveavatar_avatar_id: '',
+  liveavatar_voice_id: '',
+  llm_provider: 'openai',
+  llm_model: 'gpt-4o',
+  llm_api_key: '',
+  system_prompt: '',
+  elevenlabs_api_key: '',
+  elevenlabs_voice_id: '',
+  stt_provider: 'deepgram',
+}
 
 export default function TenantManager() {
   const token = localStorage.getItem('admin_token') || ''
   const [tenants, setTenants] = useState<any[]>([])
   const [showCreate, setShowCreate] = useState(false)
-  const [form, setForm] = useState({
-    name: '',
-    slug: '',
-    heygen_avatar_id: '',
-    llm_provider: 'openai',
-    llm_model: 'gpt-4o',
-    system_prompt: '',
-  })
+  const [editingTenant, setEditingTenant] = useState<any>(null)
+  const [form, setForm] = useState<TenantForm>({ ...emptyForm })
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     if (token) {
@@ -27,17 +50,67 @@ export default function TenantManager() {
   }, [token])
 
   const handleCreate = async () => {
+    setSaving(true)
     try {
-      await tenantApi.create(form, token)
+      const data: any = { ...form }
+      // Remove empty optional fields
+      Object.keys(data).forEach(k => { if (data[k] === '') delete data[k] })
+      await tenantApi.create(data, token)
       setShowCreate(false)
-      setForm({ name: '', slug: '', heygen_avatar_id: '', llm_provider: 'openai', llm_model: 'gpt-4o', system_prompt: '' })
-      // Reload
+      setForm({ ...emptyForm })
       const updated = await tenantApi.list(token)
       setTenants(updated)
     } catch (e: any) {
       alert(`Fehler: ${e.message}`)
+    } finally {
+      setSaving(false)
     }
   }
+
+  const handleEdit = (tenant: any) => {
+    setEditingTenant(tenant)
+    setForm({
+      name: tenant.name || '',
+      slug: tenant.slug || '',
+      liveavatar_avatar_id: tenant.liveavatar_avatar_id || '',
+      liveavatar_voice_id: tenant.liveavatar_voice_id || '',
+      llm_provider: tenant.llm_provider || 'openai',
+      llm_model: tenant.llm_model || 'gpt-4o',
+      llm_api_key: tenant.llm_api_key || '',
+      system_prompt: tenant.system_prompt || '',
+      elevenlabs_api_key: tenant.elevenlabs_api_key || '',
+      elevenlabs_voice_id: tenant.elevenlabs_voice_id || '',
+      stt_provider: tenant.stt_provider || 'deepgram',
+    })
+    setShowCreate(false)
+  }
+
+  const handleUpdate = async () => {
+    if (!editingTenant) return
+    setSaving(true)
+    try {
+      const data: any = { ...form }
+      delete data.slug // Slug can't be changed
+      await tenantApi.update(editingTenant.id, data, token)
+      setEditingTenant(null)
+      setForm({ ...emptyForm })
+      const updated = await tenantApi.list(token)
+      setTenants(updated)
+    } catch (e: any) {
+      alert(`Fehler: ${e.message}`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleCancel = () => {
+    setShowCreate(false)
+    setEditingTenant(null)
+    setForm({ ...emptyForm })
+  }
+
+  const isEditing = !!editingTenant
+  const showForm = showCreate || isEditing
 
   return (
     <div className="min-h-screen bg-gray-50 p-8">
@@ -49,48 +122,81 @@ export default function TenantManager() {
             </Link>
             <h1 className="text-2xl font-bold text-gray-900">Mandanten-Verwaltung</h1>
           </div>
-          <button
-            onClick={() => setShowCreate(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            <Plus className="w-4 h-4" /> Neuer Mandant
-          </button>
+          {!showForm && (
+            <button
+              onClick={() => { setShowCreate(true); setEditingTenant(null); setForm({ ...emptyForm }) }}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              <Plus className="w-4 h-4" /> Neuer Mandant
+            </button>
+          )}
         </div>
 
-        {/* Create Form */}
-        {showCreate && (
+        {/* Create / Edit Form */}
+        {showForm && (
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
-            <h2 className="text-lg font-semibold mb-4">Neuen Mandanten anlegen</h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold">
+                {isEditing ? `${editingTenant.name} bearbeiten` : 'Neuen Mandanten anlegen'}
+              </h2>
+              <button onClick={handleCancel} className="p-1 hover:bg-gray-100 rounded">
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
                 <input
                   type="text"
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder="z.B. Stadt Büttelborn"
+                  placeholder="z.B. Gemeinde Büttelborn"
                   className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 outline-none"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Slug (URL)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Slug (URL) {isEditing && <span className="text-gray-400">— nicht änderbar</span>}
+                </label>
                 <input
                   type="text"
                   value={form.slug}
                   onChange={(e) => setForm({ ...form, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })}
                   placeholder="z.B. buettelborn"
+                  disabled={isEditing}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 outline-none disabled:bg-gray-100 disabled:text-gray-500"
+                />
+              </div>
+
+              {/* Avatar Settings */}
+              <div className="col-span-2 mt-2">
+                <h3 className="text-sm font-semibold text-blue-600 uppercase tracking-wider mb-2">Avatar-Einstellungen</h3>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">LiveAvatar Avatar-ID</label>
+                <input
+                  type="text"
+                  value={form.liveavatar_avatar_id}
+                  onChange={(e) => setForm({ ...form, liveavatar_avatar_id: e.target.value })}
+                  placeholder="z.B. 9b116530-ab51-48ec-..."
                   className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 outline-none"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">HeyGen Avatar ID</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">LiveAvatar Voice-ID</label>
                 <input
                   type="text"
-                  value={form.heygen_avatar_id}
-                  onChange={(e) => setForm({ ...form, heygen_avatar_id: e.target.value })}
-                  placeholder="Avatar ID aus HeyGen"
+                  value={form.liveavatar_voice_id}
+                  onChange={(e) => setForm({ ...form, liveavatar_voice_id: e.target.value })}
+                  placeholder="Optional"
                   className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 outline-none"
                 />
+              </div>
+
+              {/* LLM Settings */}
+              <div className="col-span-2 mt-2">
+                <h3 className="text-sm font-semibold text-blue-600 uppercase tracking-wider mb-2">LLM-Einstellungen</h3>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">LLM Provider</label>
@@ -115,25 +221,74 @@ export default function TenantManager() {
                 />
               </div>
               <div className="col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">LLM API Key (optional, falls pro Mandant)</label>
+                <input
+                  type="password"
+                  value={form.llm_api_key}
+                  onChange={(e) => setForm({ ...form, llm_api_key: e.target.value })}
+                  placeholder="Leer = globaler Key aus Umgebungsvariablen"
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 outline-none"
+                />
+              </div>
+              <div className="col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">System Prompt</label>
                 <textarea
                   value={form.system_prompt}
                   onChange={(e) => setForm({ ...form, system_prompt: e.target.value })}
-                  placeholder="Du bist der virtuelle Bürgermeister von Büttelborn..."
+                  placeholder="Du bist der digitale Assistent der Gemeinde Büttelborn..."
                   rows={4}
                   className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 outline-none"
                 />
               </div>
+
+              {/* TTS / STT Settings */}
+              <div className="col-span-2 mt-2">
+                <h3 className="text-sm font-semibold text-blue-600 uppercase tracking-wider mb-2">Sprache (TTS/STT)</h3>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">ElevenLabs API Key (optional)</label>
+                <input
+                  type="password"
+                  value={form.elevenlabs_api_key}
+                  onChange={(e) => setForm({ ...form, elevenlabs_api_key: e.target.value })}
+                  placeholder="Leer = globaler Key"
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">ElevenLabs Voice-ID (optional)</label>
+                <input
+                  type="text"
+                  value={form.elevenlabs_voice_id}
+                  onChange={(e) => setForm({ ...form, elevenlabs_voice_id: e.target.value })}
+                  placeholder="Leer = globale Voice"
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">STT Provider</label>
+                <select
+                  value={form.stt_provider}
+                  onChange={(e) => setForm({ ...form, stt_provider: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 outline-none"
+                >
+                  <option value="deepgram">Deepgram</option>
+                  <option value="openai">OpenAI Whisper</option>
+                </select>
+              </div>
             </div>
-            <div className="flex gap-3 mt-4">
+
+            <div className="flex gap-3 mt-6">
               <button
-                onClick={handleCreate}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                onClick={isEditing ? handleUpdate : handleCreate}
+                disabled={saving}
+                className="flex items-center gap-2 px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
               >
-                Anlegen
+                <Check className="w-4 h-4" />
+                {saving ? 'Speichern...' : (isEditing ? 'Speichern' : 'Anlegen')}
               </button>
               <button
-                onClick={() => setShowCreate(false)}
+                onClick={handleCancel}
                 className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
               >
                 Abbrechen
@@ -153,11 +308,27 @@ export default function TenantManager() {
                     Slug: <code className="bg-gray-100 px-2 py-0.5 rounded">{tenant.slug}</code>
                     {' | '}LLM: {tenant.llm_provider}/{tenant.llm_model}
                   </p>
+                  {tenant.liveavatar_avatar_id && (
+                    <p className="text-xs text-gray-400 mt-1">
+                      Avatar: <code>{tenant.liveavatar_avatar_id.substring(0, 20)}...</code>
+                    </p>
+                  )}
+                  {!tenant.liveavatar_avatar_id && (
+                    <p className="text-xs text-orange-500 mt-1">
+                      Kein Avatar zugewiesen — bitte bearbeiten
+                    </p>
+                  )}
                   <p className="text-xs text-gray-400 mt-1 font-mono">
                     API Key: {tenant.api_key?.substring(0, 16)}...
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleEdit(tenant)}
+                    className="flex items-center gap-1 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg border border-gray-200"
+                  >
+                    <Pencil className="w-4 h-4" /> Bearbeiten
+                  </button>
                   <Link
                     to={`/admin/knowledge/${tenant.id}`}
                     className="flex items-center gap-1 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg border border-gray-200"
