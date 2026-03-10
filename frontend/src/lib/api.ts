@@ -146,10 +146,10 @@ export const knowledgeApi = {
 
 // --- Admin API ---
 export const adminApi = {
-  login: (slug: string, apiKey: string) =>
+  login: (username: string, password: string) =>
     apiRequest('/admin/auth/token', {
       method: 'POST',
-      body: { tenant_slug: slug, api_key: apiKey },
+      body: { username, password },
     }),
 
   getStats: (token: string) =>

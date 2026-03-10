@@ -4,32 +4,49 @@
 
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Users, MessageCircle, Video, BarChart3 } from 'lucide-react'
+import { Users, MessageCircle, Video, BarChart3, LogOut } from 'lucide-react'
 import { adminApi, tenantApi } from '../../lib/api'
 
 export default function AdminDashboard() {
   const [token, setToken] = useState(() => localStorage.getItem('admin_token') || '')
-  const [loginSlug, setLoginSlug] = useState('')
-  const [loginKey, setLoginKey] = useState('')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
   const [stats, setStats] = useState<any>(null)
   const [tenants, setTenants] = useState<any[]>([])
   const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const [loginError, setLoginError] = useState('')
 
   const handleLogin = async () => {
+    setLoginError('')
     try {
-      const result = await adminApi.login(loginSlug, loginKey)
+      const result = await adminApi.login(username, password)
       setToken(result.access_token)
       localStorage.setItem('admin_token', result.access_token)
       setIsLoggedIn(true)
-    } catch (e) {
-      alert('Anmeldung fehlgeschlagen')
+    } catch (e: any) {
+      setLoginError('Benutzername oder Passwort falsch.')
     }
+  }
+
+  const handleLogout = () => {
+    setToken('')
+    localStorage.removeItem('admin_token')
+    setIsLoggedIn(false)
+    setStats(null)
+    setTenants([])
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') handleLogin()
   }
 
   useEffect(() => {
     if (token) {
       setIsLoggedIn(true)
-      adminApi.getStats(token).then(setStats).catch(console.error)
+      adminApi.getStats(token).then(setStats).catch(() => {
+        // Token expired or invalid — force re-login
+        handleLogout()
+      })
       tenantApi.list(token).then(setTenants).catch(console.error)
     }
   }, [token])
@@ -38,22 +55,37 @@ export default function AdminDashboard() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md">
-          <h1 className="text-2xl font-bold mb-6">Admin Login</h1>
+          <h1 className="text-2xl font-bold mb-2">Admin Login</h1>
+          <p className="text-gray-500 mb-6 text-sm">LiveAvatar Platform Administration</p>
+          {loginError && (
+            <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm">
+              {loginError}
+            </div>
+          )}
           <div className="space-y-4">
-            <input
-              type="text"
-              value={loginSlug}
-              onChange={(e) => setLoginSlug(e.target.value)}
-              placeholder="Tenant Slug"
-              className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:border-blue-500 outline-none"
-            />
-            <input
-              type="password"
-              value={loginKey}
-              onChange={(e) => setLoginKey(e.target.value)}
-              placeholder="API Key"
-              className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:border-blue-500 outline-none"
-            />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Benutzername</label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Benutzername"
+                className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:border-blue-500 outline-none"
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Passwort</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Passwort"
+                className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:border-blue-500 outline-none"
+              />
+            </div>
             <button
               onClick={handleLogin}
               className="w-full py-3 rounded-xl bg-blue-600 text-white font-medium hover:bg-blue-700"
@@ -80,6 +112,14 @@ export default function AdminDashboard() {
               <Users className="w-5 h-5" /> Mandanten
             </Link>
           </nav>
+          <div className="mt-auto pt-8">
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-3 px-4 py-2 rounded-lg text-gray-500 hover:bg-gray-50 w-full text-sm"
+            >
+              <LogOut className="w-4 h-4" /> Abmelden
+            </button>
+          </div>
         </aside>
 
         {/* Main Content */}

@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     embedding_provider: str = "openai"
     embedding_model: str = "text-embedding-3-small"
 
+    # Admin credentials
+    admin_username: str = "admin"
+    admin_password: str = "change-me"
+
     # JWT
     jwt_secret_key: str = "change-me"
     jwt_algorithm: str = "HS256"

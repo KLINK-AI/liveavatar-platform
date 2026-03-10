@@ -4,7 +4,7 @@ Admin API Routes — Dashboard and analytics.
 Endpoints:
 - GET /stats           → Platform-wide statistics
 - GET /stats/{tenant}  → Per-tenant statistics
-- POST /auth/token     → Generate admin JWT token
+- POST /auth/token     → Generate admin JWT token (username/password)
 """
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -12,7 +12,9 @@ from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import timedelta
+import secrets
 
+from config import get_settings
 from database import get_db
 from models.tenant import Tenant
 from models.session import AvatarSession, SessionStatus
@@ -20,44 +22,36 @@ from models.conversation import Message
 from api.middleware.auth import create_access_token
 
 router = APIRouter()
+settings = get_settings()
 
 
 class AuthRequest(BaseModel):
-    """Simple auth for admin dashboard."""
-    tenant_slug: str
-    api_key: str
+    """Admin login with username and password."""
+    username: str
+    password: str
 
 
 @router.post("/auth/token")
-async def get_admin_token(
-    request: AuthRequest,
-    db: AsyncSession = Depends(get_db),
-):
+async def get_admin_token(request: AuthRequest):
     """
-    Exchange tenant API key for a JWT token.
-    Used by the admin dashboard for authenticated requests.
+    Exchange admin username/password for a JWT token.
+    The admin account manages ALL tenants.
+    Credentials are configured via ADMIN_USERNAME and ADMIN_PASSWORD env vars.
     """
-    result = await db.execute(
-        select(Tenant).where(
-            Tenant.slug == request.tenant_slug,
-            Tenant.api_key == request.api_key,
-            Tenant.is_active == True,
-        )
-    )
-    tenant = result.scalar_one_or_none()
-    if not tenant:
+    if not secrets.compare_digest(request.username, settings.admin_username):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    if not secrets.compare_digest(request.password, settings.admin_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     token = create_access_token(
-        data={"tenant_id": tenant.id, "slug": tenant.slug},
+        data={"role": "admin", "sub": request.username},
         expires_delta=timedelta(hours=24),
     )
 
     return {
         "access_token": token,
         "token_type": "bearer",
-        "tenant_id": tenant.id,
-        "tenant_name": tenant.name,
+        "role": "admin",
     }
 
 

@@ -54,6 +54,24 @@ async def get_current_tenant(
                 settings.jwt_secret_key,
                 algorithms=[settings.jwt_algorithm],
             )
+
+            # Admin token — return first active tenant as context
+            # (admin can manage all tenants)
+            role = payload.get("role")
+            if role == "admin":
+                result = await db.execute(
+                    select(Tenant).where(Tenant.is_active == True).limit(1)
+                )
+                tenant = result.scalar_one_or_none()
+                if tenant:
+                    return tenant
+                # No tenants exist yet — create a placeholder for admin access
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="No active tenants found"
+                )
+
+            # Tenant-specific token
             tenant_id: str = payload.get("tenant_id")
             if not tenant_id:
                 raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
