@@ -11,7 +11,6 @@ interface TenantForm {
   name: string
   slug: string
   liveavatar_avatar_id: string
-  liveavatar_voice_id: string
   llm_provider: string
   llm_model: string
   llm_api_key: string
@@ -25,7 +24,6 @@ const emptyForm: TenantForm = {
   name: '',
   slug: '',
   liveavatar_avatar_id: '',
-  liveavatar_voice_id: '',
   llm_provider: 'openai',
   llm_model: 'gpt-4o',
   llm_api_key: '',
@@ -73,12 +71,11 @@ export default function TenantManager() {
       name: tenant.name || '',
       slug: tenant.slug || '',
       liveavatar_avatar_id: tenant.liveavatar_avatar_id || '',
-      liveavatar_voice_id: tenant.liveavatar_voice_id || '',
       llm_provider: tenant.llm_provider || 'openai',
       llm_model: tenant.llm_model || 'gpt-4o',
-      llm_api_key: tenant.llm_api_key || '',
+      llm_api_key: '', // Don't pre-fill — show placeholder with masked value
       system_prompt: tenant.system_prompt || '',
-      elevenlabs_api_key: tenant.elevenlabs_api_key || '',
+      elevenlabs_api_key: '', // Don't pre-fill — show placeholder with masked value
       elevenlabs_voice_id: tenant.elevenlabs_voice_id || '',
       stt_provider: tenant.stt_provider || 'deepgram',
     })
@@ -91,6 +88,9 @@ export default function TenantManager() {
     try {
       const data: any = { ...form }
       delete data.slug // Slug can't be changed
+      // Don't send empty API key fields (would overwrite existing)
+      if (!data.llm_api_key) delete data.llm_api_key
+      if (!data.elevenlabs_api_key) delete data.elevenlabs_api_key
       await tenantApi.update(editingTenant.id, data, token)
       setEditingTenant(null)
       setForm({ ...emptyForm })
@@ -173,23 +173,16 @@ export default function TenantManager() {
               <div className="col-span-2 mt-2">
                 <h3 className="text-sm font-semibold text-blue-600 uppercase tracking-wider mb-2">Avatar-Einstellungen</h3>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">LiveAvatar Avatar-ID</label>
+              <div className="col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  LiveAvatar Avatar-ID
+                  <span className="text-gray-400 text-xs ml-2">Die ID aus Ihrem liveavatar.com Account</span>
+                </label>
                 <input
                   type="text"
                   value={form.liveavatar_avatar_id}
                   onChange={(e) => setForm({ ...form, liveavatar_avatar_id: e.target.value })}
                   placeholder="z.B. 9b116530-ab51-48ec-..."
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">LiveAvatar Voice-ID</label>
-                <input
-                  type="text"
-                  value={form.liveavatar_voice_id}
-                  onChange={(e) => setForm({ ...form, liveavatar_voice_id: e.target.value })}
-                  placeholder="Optional"
                   className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 outline-none"
                 />
               </div>
@@ -221,14 +214,23 @@ export default function TenantManager() {
                 />
               </div>
               <div className="col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">LLM API Key (optional, falls pro Mandant)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  LLM API Key (optional, falls pro Mandant)
+                </label>
                 <input
                   type="password"
                   value={form.llm_api_key}
                   onChange={(e) => setForm({ ...form, llm_api_key: e.target.value })}
-                  placeholder="Leer = globaler Key aus Umgebungsvariablen"
+                  placeholder={isEditing && editingTenant?.llm_api_key_masked
+                    ? `Gespeichert: ${editingTenant.llm_api_key_masked} — leer lassen um beizubehalten`
+                    : 'Leer = globaler Key aus Umgebungsvariablen'}
                   className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 outline-none"
                 />
+                {isEditing && editingTenant?.llm_api_key_masked && (
+                  <p className="text-xs text-green-600 mt-1">
+                    Gespeicherter Key: {editingTenant.llm_api_key_masked}
+                  </p>
+                )}
               </div>
               <div className="col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">System Prompt</label>
@@ -243,30 +245,47 @@ export default function TenantManager() {
 
               {/* TTS / STT Settings */}
               <div className="col-span-2 mt-2">
-                <h3 className="text-sm font-semibold text-blue-600 uppercase tracking-wider mb-2">Sprache (TTS/STT)</h3>
+                <h3 className="text-sm font-semibold text-blue-600 uppercase tracking-wider mb-2">
+                  Stimme (ElevenLabs TTS)
+                </h3>
+                <p className="text-xs text-gray-400 mb-3">
+                  Im LITE Mode wird die Stimme über ElevenLabs generiert und als Audio an den Avatar gesendet.
+                </p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">ElevenLabs API Key (optional)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  ElevenLabs API Key (optional)
+                </label>
                 <input
                   type="password"
                   value={form.elevenlabs_api_key}
                   onChange={(e) => setForm({ ...form, elevenlabs_api_key: e.target.value })}
-                  placeholder="Leer = globaler Key"
+                  placeholder={isEditing && editingTenant?.elevenlabs_api_key_masked
+                    ? `Gespeichert: ${editingTenant.elevenlabs_api_key_masked} — leer lassen`
+                    : 'Leer = globaler Key'}
                   className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 outline-none"
                 />
+                {isEditing && editingTenant?.elevenlabs_api_key_masked && (
+                  <p className="text-xs text-green-600 mt-1">
+                    Gespeicherter Key: {editingTenant.elevenlabs_api_key_masked}
+                  </p>
+                )}
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">ElevenLabs Voice-ID (optional)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  ElevenLabs Voice-ID
+                  <span className="text-gray-400 text-xs ml-1">(die Stimme für den Avatar)</span>
+                </label>
                 <input
                   type="text"
                   value={form.elevenlabs_voice_id}
                   onChange={(e) => setForm({ ...form, elevenlabs_voice_id: e.target.value })}
-                  placeholder="Leer = globale Voice"
+                  placeholder="z.B. i864UlSuWq9bx6fRZpva"
                   className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 outline-none"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">STT Provider</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">STT Provider (Spracherkennung)</label>
                 <select
                   value={form.stt_provider}
                   onChange={(e) => setForm({ ...form, stt_provider: e.target.value })}
@@ -316,6 +335,12 @@ export default function TenantManager() {
                   {!tenant.liveavatar_avatar_id && (
                     <p className="text-xs text-orange-500 mt-1">
                       Kein Avatar zugewiesen — bitte bearbeiten
+                    </p>
+                  )}
+                  {tenant.elevenlabs_api_key_masked && (
+                    <p className="text-xs text-green-600 mt-1">
+                      ElevenLabs Key: {tenant.elevenlabs_api_key_masked}
+                      {tenant.elevenlabs_voice_id && ` | Voice: ${tenant.elevenlabs_voice_id}`}
                     </p>
                   )}
                   <p className="text-xs text-gray-400 mt-1 font-mono">

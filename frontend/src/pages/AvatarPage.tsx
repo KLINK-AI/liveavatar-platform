@@ -2,17 +2,17 @@
  * Avatar Page — Public-facing page for end users.
  *
  * Accessed via /avatar/:tenantSlug
- * Loads tenant branding, starts avatar session, provides chat interface.
+ * Loads tenant config (incl. API key), auto-starts avatar session.
+ * NO manual API key entry needed — fully public.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import AvatarPlayer from '../components/AvatarPlayer'
 import ChatInterface from '../components/ChatInterface'
 import VoiceInput from '../components/VoiceInput'
-import { useAvatarSession } from '../hooks/useAvatarSession'
 import { useConversation } from '../hooks/useConversation'
-import { tenantApi } from '../lib/api'
+import { tenantApi, sessionApi } from '../lib/api'
 
 interface TenantConfig {
   name: string
@@ -23,36 +23,102 @@ interface TenantConfig {
     background_color?: string
   } | null
   has_avatar: boolean
+  api_key: string
+}
+
+interface AvatarSession {
+  sessionId: string
+  livekitUrl: string | null
+  livekitToken: string | null
+  status: string
 }
 
 export default function AvatarPage() {
   const { tenantSlug } = useParams<{ tenantSlug: string }>()
   const [tenantConfig, setTenantConfig] = useState<TenantConfig | null>(null)
-  const [apiKey, setApiKey] = useState('')
-  const [isReady, setIsReady] = useState(false)
+  const [session, setSession] = useState<AvatarSession | null>(null)
+  const [isConnecting, setIsConnecting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [loadingTenant, setLoadingTenant] = useState(true)
+  const keepAliveRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const sessionStartedRef = useRef(false)
 
-  // Load tenant config
+  // Step 1: Load tenant config (includes API key)
   useEffect(() => {
-    if (tenantSlug) {
-      tenantApi.getBySlug(tenantSlug)
-        .then(setTenantConfig)
-        .catch(console.error)
-    }
+    if (!tenantSlug) return
+    setLoadingTenant(true)
+    tenantApi.getBySlug(tenantSlug)
+      .then((config: any) => {
+        setTenantConfig(config)
+        setLoadingTenant(false)
+      })
+      .catch(() => {
+        setError(`Mandant "${tenantSlug}" nicht gefunden.`)
+        setLoadingTenant(false)
+      })
   }, [tenantSlug])
 
-  // For now, API key must be provided (in production: embedded in widget config)
-  const handleStart = () => {
-    if (apiKey) setIsReady(true)
-  }
+  // Step 2: Auto-start session when tenant is loaded
+  const startSession = useCallback(async () => {
+    if (!tenantConfig?.api_key || !tenantConfig.has_avatar) return
+    if (sessionStartedRef.current) return
+    sessionStartedRef.current = true
+    setIsConnecting(true)
+    setError(null)
 
-  const {
-    session,
-    isConnecting,
-    error: sessionError,
-    startSession,
-    stopSession,
-    isActive,
-  } = useAvatarSession({ apiKey })
+    try {
+      const data = await sessionApi.create(tenantConfig.api_key)
+      const newSession: AvatarSession = {
+        sessionId: data.session_id,
+        livekitUrl: data.livekit_url,
+        livekitToken: data.livekit_token,
+        status: data.status,
+      }
+      setSession(newSession)
+
+      // Keep-alive every 60s
+      keepAliveRef.current = setInterval(async () => {
+        try {
+          await sessionApi.keepAlive(newSession.sessionId, tenantConfig.api_key)
+        } catch (e) {
+          console.warn('Keep-alive failed:', e)
+        }
+      }, 60000)
+    } catch (e: any) {
+      sessionStartedRef.current = false
+      setError(e.message || 'Session konnte nicht gestartet werden.')
+    } finally {
+      setIsConnecting(false)
+    }
+  }, [tenantConfig])
+
+  useEffect(() => {
+    if (tenantConfig?.has_avatar && tenantConfig.api_key && !session && !isConnecting) {
+      startSession()
+    }
+  }, [tenantConfig])
+
+  // Cleanup
+  useEffect(() => {
+    return () => {
+      if (keepAliveRef.current) clearInterval(keepAliveRef.current)
+    }
+  }, [])
+
+  const stopSession = useCallback(async () => {
+    if (!session || !tenantConfig) return
+    if (keepAliveRef.current) {
+      clearInterval(keepAliveRef.current)
+      keepAliveRef.current = null
+    }
+    try {
+      await sessionApi.stop(session.sessionId, tenantConfig.api_key)
+    } catch (e) {
+      console.warn('Session stop error:', e)
+    }
+    setSession(null)
+    sessionStartedRef.current = false
+  }, [session, tenantConfig])
 
   const {
     messages,
@@ -61,44 +127,53 @@ export default function AvatarPage() {
     sendMessage,
   } = useConversation({
     sessionId: session?.sessionId || '',
-    apiKey,
+    apiKey: tenantConfig?.api_key || '',
   })
 
-  // Auto-start session when ready
-  useEffect(() => {
-    if (isReady && !session && !isConnecting) {
-      startSession()
-    }
-  }, [isReady])
-
   const primaryColor = tenantConfig?.branding?.primary_color || '#2563eb'
+  const isActive = session?.status === 'active' || session?.status === 'creating'
 
-  // API Key input (for testing — in production this comes from embed config)
-  if (!isReady) {
+  // Loading state
+  if (loadingTenant) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin w-10 h-10 border-3 border-blue-600 border-t-transparent rounded-full mx-auto mb-4" />
+          <p className="text-gray-500">Wird geladen...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Error: tenant not found or no avatar
+  if (error && !session) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md">
-          <h1 className="text-2xl font-bold mb-2">
-            {tenantConfig?.name || 'Avatar Assistent'}
-          </h1>
-          <p className="text-gray-500 mb-6">
-            Geben Sie Ihren API-Key ein, um den Avatar zu starten.
-          </p>
-          <input
-            type="text"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="API Key"
-            className="w-full px-4 py-3 rounded-xl border border-gray-300 mb-4 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none"
-          />
+        <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md text-center">
+          <div className="text-4xl mb-4">&#9888;</div>
+          <h1 className="text-xl font-bold mb-2 text-gray-900">Fehler</h1>
+          <p className="text-gray-500 mb-6">{error}</p>
           <button
-            onClick={handleStart}
-            disabled={!apiKey}
-            className="w-full py-3 rounded-xl text-white font-medium disabled:opacity-50"
+            onClick={() => { sessionStartedRef.current = false; startSession() }}
+            className="px-6 py-3 rounded-xl text-white font-medium"
             style={{ backgroundColor: primaryColor }}
           >
-            Avatar starten
+            Erneut versuchen
           </button>
+        </div>
+      </div>
+    )
+  }
+
+  // No avatar configured
+  if (tenantConfig && !tenantConfig.has_avatar) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md text-center">
+          <h1 className="text-xl font-bold mb-2">{tenantConfig.name}</h1>
+          <p className="text-gray-500">
+            Kein Avatar konfiguriert. Bitte weisen Sie im Admin-Dashboard einen Avatar zu.
+          </p>
         </div>
       </div>
     )
@@ -124,7 +199,7 @@ export default function AvatarPage() {
               {tenantConfig?.name || 'Avatar Assistent'}
             </h1>
           </div>
-          {isActive && (
+          {session && (
             <button
               onClick={stopSession}
               className="px-4 py-2 rounded-lg bg-red-100 text-red-600 hover:bg-red-200 text-sm"
@@ -150,18 +225,21 @@ export default function AvatarPage() {
                     <div className="animate-spin w-10 h-10 border-3 border-white border-t-transparent rounded-full mx-auto mb-3" />
                     <p>Avatar wird geladen...</p>
                   </div>
-                ) : sessionError ? (
+                ) : error ? (
                   <div className="text-center text-red-400">
-                    <p>Fehler: {sessionError}</p>
+                    <p>Fehler: {error}</p>
                     <button
-                      onClick={() => startSession()}
+                      onClick={() => { sessionStartedRef.current = false; startSession() }}
                       className="mt-3 px-4 py-2 bg-white/10 rounded-lg hover:bg-white/20"
                     >
                       Erneut versuchen
                     </button>
                   </div>
                 ) : (
-                  <p className="text-gray-400">Avatar wird vorbereitet...</p>
+                  <div className="text-center">
+                    <div className="animate-spin w-10 h-10 border-3 border-white border-t-transparent rounded-full mx-auto mb-3" />
+                    <p className="text-gray-400">Avatar wird vorbereitet...</p>
+                  </div>
                 )}
               </div>
             )}

@@ -35,6 +35,29 @@ async function apiRequest(endpoint: string, options: RequestOptions = {}) {
   return response.json()
 }
 
+/**
+ * Upload a file via multipart/form-data (for document uploads).
+ */
+async function apiUpload(endpoint: string, file: File, token: string) {
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const response = await fetch(`${API_BASE}${endpoint}`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+    },
+    body: formData,
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Upload failed' }))
+    throw new Error(error.detail || `HTTP ${response.status}`)
+  }
+
+  return response.json()
+}
+
 // --- Session API ---
 export const sessionApi = {
   create: (apiKey: string, avatarId?: string) =>
@@ -96,6 +119,9 @@ export const knowledgeApi = {
 
   listDocuments: (kbId: string, token: string) =>
     apiRequest(`/knowledge/${kbId}/documents`, { token }),
+
+  uploadDocument: (kbId: string, file: File, token: string) =>
+    apiUpload(`/knowledge/${kbId}/documents`, file, token),
 
   indexUrl: (kbId: string, url: string, crawlSite: boolean, token: string) =>
     apiRequest(`/knowledge/${kbId}/urls`, {

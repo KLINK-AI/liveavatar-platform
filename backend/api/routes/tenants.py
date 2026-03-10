@@ -6,7 +6,7 @@ Endpoints:
 - GET  /         → List all tenants
 - GET  /{id}     → Get tenant details
 - PUT  /{id}     → Update tenant configuration
-- GET  /by-slug/{slug} → Public: resolve tenant by slug
+- GET  /by-slug/{slug} → Public: resolve tenant by slug (incl. API key for public sessions)
 """
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -21,6 +21,15 @@ from models.tenant import Tenant
 from api.middleware.auth import get_current_tenant
 
 router = APIRouter()
+
+
+def _mask_key(key: Optional[str]) -> Optional[str]:
+    """Mask a secret key for display: show first 4 and last 4 chars."""
+    if not key:
+        return None
+    if len(key) <= 8:
+        return "****"
+    return f"{key[:4]}...{key[-4:]}"
 
 
 class CreateTenantRequest(BaseModel):
@@ -60,10 +69,13 @@ class TenantResponse(BaseModel):
     api_key: str
     is_active: bool
     liveavatar_avatar_id: Optional[str]
+    liveavatar_voice_id: Optional[str]
+    elevenlabs_api_key_masked: Optional[str]
     elevenlabs_voice_id: Optional[str]
     stt_provider: Optional[str]
     llm_provider: str
     llm_model: str
+    llm_api_key_masked: Optional[str]
     system_prompt: str
     branding: Optional[dict]
     created_at: str
@@ -137,9 +149,12 @@ async def update_tenant(
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
 
-    # Update only provided fields
+    # Update only provided fields, skip masked key values
     update_data = request.model_dump(exclude_unset=True)
     for key, value in update_data.items():
+        # Don't overwrite API keys with masked values (e.g. "sk_2...8542")
+        if key in ("elevenlabs_api_key", "llm_api_key") and value and "..." in value:
+            continue
         setattr(tenant, key, value)
 
     return _tenant_to_response(tenant)
@@ -152,8 +167,8 @@ async def get_tenant_by_slug(
 ):
     """
     Public endpoint: resolve tenant config by slug.
-    Used by the embed widget to load branding and avatar config.
-    Returns only public information (no API keys or secrets).
+    Used by the avatar frontend page and embed widget.
+    Returns public info + API key needed for session creation.
     """
     result = await db.execute(
         select(Tenant).where(Tenant.slug == slug, Tenant.is_active == True)
@@ -167,6 +182,7 @@ async def get_tenant_by_slug(
         "slug": tenant.slug,
         "branding": tenant.branding,
         "has_avatar": bool(tenant.liveavatar_avatar_id),
+        "api_key": tenant.api_key,
     }
 
 
@@ -178,10 +194,13 @@ def _tenant_to_response(tenant: Tenant) -> TenantResponse:
         api_key=tenant.api_key,
         is_active=tenant.is_active,
         liveavatar_avatar_id=tenant.liveavatar_avatar_id,
+        liveavatar_voice_id=tenant.liveavatar_voice_id,
+        elevenlabs_api_key_masked=_mask_key(tenant.elevenlabs_api_key),
         elevenlabs_voice_id=tenant.elevenlabs_voice_id,
         stt_provider=tenant.stt_provider,
         llm_provider=tenant.llm_provider,
         llm_model=tenant.llm_model,
+        llm_api_key_masked=_mask_key(tenant.llm_api_key),
         system_prompt=tenant.system_prompt,
         branding=tenant.branding,
         created_at=tenant.created_at.isoformat(),
