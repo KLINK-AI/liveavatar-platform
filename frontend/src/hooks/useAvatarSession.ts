@@ -38,7 +38,7 @@ export function useAvatarSession(options: UseAvatarSessionOptions) {
     setError(null)
 
     try {
-      const data = await sessionApi.create(apiKey, avatarId)
+      const data = await sessionApi.create(apiKey, { avatarId })
       const newSession: AvatarSession = {
         sessionId: data.session_id,
         heygenSessionId: data.heygen_session_id,
