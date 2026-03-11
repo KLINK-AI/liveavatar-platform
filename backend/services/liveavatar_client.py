@@ -278,7 +278,7 @@ class LiveAvatarClient:
             },
             timeout=15.0,
         ) as client:
-            response = await client.post("/v1/sessions/keep-alive")
+            response = await client.post("/v1/sessions/keep_alive")
             response.raise_for_status()
 
         logger.debug("Keep-alive sent")

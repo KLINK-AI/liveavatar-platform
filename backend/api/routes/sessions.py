@@ -364,6 +364,10 @@ async def keep_alive(
     try:
         await liveavatar.keep_alive(db_session.liveavatar_session_token)
         return {"status": "alive"}
+    except Exception as e:
+        # Keep-alive failures are non-critical — WS heartbeat also keeps session alive
+        logger.warning("REST keep_alive failed (WS heartbeat still active)", error=str(e))
+        return {"status": "alive", "note": "REST keep-alive failed, WS heartbeat active"}
     finally:
         await liveavatar.close()
 
