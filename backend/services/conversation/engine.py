@@ -45,6 +45,7 @@ class ConversationEngine:
         self._memories: dict[str, ConversationMemory] = {}
         self._ws_managers: dict[str, LiveAvatarWSManager] = {}
         self._session_languages: dict[str, str] = {}  # session_id → language code
+        self._greeting_audio_cache: dict[str, list[bytes]] = {}  # cache_key → audio chunks
 
     def _get_memory(self, session_id: str) -> ConversationMemory:
         """Get or create conversation memory for a session."""
@@ -316,6 +317,28 @@ class ConversationEngine:
 
         yield {"type": "done", "full_response": full_response}
 
+    async def _send_cached_audio_to_avatar(
+        self,
+        session_id: str,
+        audio_chunks: list[bytes],
+    ) -> bool:
+        """Send pre-cached audio chunks directly to avatar (skip TTS)."""
+        ws_manager = self._ws_managers.get(session_id)
+        if not ws_manager or not ws_manager.is_connected:
+            logger.warning("No WebSocket connection for cached audio", session_id=session_id)
+            return False
+
+        try:
+            await ws_manager.send_start_listening()
+            for chunk in audio_chunks:
+                await ws_manager.send_speak_from_bytes(chunk)
+            await ws_manager.send_speak_end()
+            logger.info("Cached audio sent to avatar", session_id=session_id, chunks=len(audio_chunks))
+            return True
+        except Exception as e:
+            logger.error("Failed to send cached audio", error=str(e), session_id=session_id)
+            return False
+
     async def send_greeting_direct(
         self,
         session_id: str,
@@ -325,8 +348,8 @@ class ConversationEngine:
     ) -> bool:
         """
         Send a pre-resolved greeting text directly to the avatar.
-        Faster than send_greeting() because it skips DB/tenant greeting resolution.
-        Used by the background task that already has the greeting text.
+        Uses an in-memory audio cache: first call generates TTS, subsequent
+        calls for the same tenant+language+text skip TTS entirely (~0ms).
         """
         self.set_session_language(session_id, language)
 
@@ -334,23 +357,72 @@ class ConversationEngine:
             logger.info("No greeting text provided", session_id=session_id)
             return False
 
-        logger.info(
-            "Sending greeting (direct) to avatar",
-            language=language,
-            greeting_length=len(greeting_text),
-        )
+        # Check greeting audio cache (key = tenant_slug + language + text hash)
+        cache_key = f"{tenant.slug}:{language}:{hash(greeting_text)}"
+        cached_chunks = self._greeting_audio_cache.get(cache_key)
 
-        sent = await self._send_audio_to_avatar(
-            session_id=session_id,
-            tenant=tenant,
-            text=greeting_text,
-        )
+        if cached_chunks:
+            logger.info(
+                "Sending CACHED greeting audio (skip TTS)",
+                language=language,
+                cache_key=cache_key,
+                chunks=len(cached_chunks),
+            )
+            sent = await self._send_cached_audio_to_avatar(session_id, cached_chunks)
+        else:
+            logger.info(
+                "Sending greeting (direct, first time — will cache)",
+                language=language,
+                greeting_length=len(greeting_text),
+            )
+            # Generate TTS and cache the audio chunks
+            sent, chunks = await self._send_audio_to_avatar_and_cache(
+                session_id=session_id,
+                tenant=tenant,
+                text=greeting_text,
+            )
+            if sent and chunks:
+                self._greeting_audio_cache[cache_key] = chunks
+                logger.info("Greeting audio cached", cache_key=cache_key, chunks=len(chunks))
 
         if sent:
             memory = self._get_memory(session_id)
             memory.add_assistant_message(greeting_text)
 
         return sent
+
+    async def _send_audio_to_avatar_and_cache(
+        self,
+        session_id: str,
+        tenant: Tenant,
+        text: str,
+    ) -> tuple[bool, list[bytes]]:
+        """Like _send_audio_to_avatar but also returns the audio chunks for caching."""
+        ws_manager = self._ws_managers.get(session_id)
+        if not ws_manager or not ws_manager.is_connected:
+            return False, []
+
+        tts = self._get_tts_for_tenant(tenant)
+        voice_id = self._get_voice_id(tenant)
+        cached_chunks: list[bytes] = []
+
+        try:
+            await ws_manager.send_start_listening()
+
+            async for audio_chunk in tts.text_to_speech_stream(
+                text=text,
+                voice_id=voice_id,
+                sample_rate=settings.tts_sample_rate,
+            ):
+                await ws_manager.send_speak_from_bytes(audio_chunk)
+                cached_chunks.append(audio_chunk)
+
+            await ws_manager.send_speak_end()
+            return True, cached_chunks
+
+        except Exception as e:
+            logger.error("Failed to send audio (with cache)", error=str(e))
+            return False, []
 
     async def send_greeting(
         self,

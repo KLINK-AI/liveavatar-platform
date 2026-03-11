@@ -11,7 +11,7 @@
  * 6. Begin conversation
  */
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useLayoutEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import AvatarPlayer from '../components/AvatarPlayer'
 import ChatInterface from '../components/ChatInterface'
@@ -56,6 +56,8 @@ export default function AvatarPage() {
   const [error, setError] = useState<string | null>(null)
   const keepAliveRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const sessionStartedRef = useRef(false)
+  const avatarWrapperRef = useRef<HTMLDivElement>(null)
+  const [chatHeight, setChatHeight] = useState<number>(0)
 
   // Step 1: Load tenant config (includes API key, preview image, languages)
   useEffect(() => {
@@ -171,6 +173,21 @@ export default function AvatarPage() {
     apiKey: tenantConfig?.api_key || '',
   })
 
+  // Track avatar wrapper height → sync chat height to it
+  useEffect(() => {
+    const el = avatarWrapperRef.current
+    if (!el) return
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setChatHeight(entry.contentRect.height)
+      }
+    })
+    observer.observe(el)
+    // Set initial height
+    setChatHeight(el.getBoundingClientRect().height)
+    return () => observer.disconnect()
+  }, [tenantConfig])
+
   const primaryColor = tenantConfig?.branding?.primary_color || '#2563eb'
   const isActive = session?.status === 'active' || session?.status === 'creating'
 
@@ -260,7 +277,7 @@ export default function AvatarPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Avatar Video / Preview — unified wrapper ensures consistent size */}
           <div className="flex flex-col">
-            <div className="avatar-wrapper shadow-2xl">
+            <div ref={avatarWrapperRef} className="avatar-wrapper shadow-2xl">
               {session?.livekitUrl && session?.livekitToken ? (
                 /* Active session: show live avatar video */
                 <AvatarPlayer
@@ -328,8 +345,11 @@ export default function AvatarPage() {
             )}
           </div>
 
-          {/* Chat Interface — fixed height matching the avatar (16:9 aspect) */}
-          <div className="avatar-chat-column">
+          {/* Chat Interface — height locked to avatar wrapper height */}
+          <div
+            style={chatHeight > 0 ? { height: chatHeight, maxHeight: chatHeight } : undefined}
+            className="overflow-hidden"
+          >
             <ChatInterface
               messages={messages}
               streamingText={streamingText}

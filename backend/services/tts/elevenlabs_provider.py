@@ -12,6 +12,7 @@ Key specs:
 """
 
 from typing import AsyncIterator, Optional
+import asyncio
 import io
 import struct
 import structlog
@@ -86,30 +87,32 @@ class ElevenLabsProvider(BaseTTSProvider):
         client = self._get_client()
 
         try:
-            # Use ElevenLabs generate with streaming
-            # output_format: pcm_24000 = PCM signed 16-bit LE, 24kHz, mono
-            audio_stream = client.text_to_speech.convert(
-                text=text,
-                voice_id=voice_id,
-                model_id=self.model_id,
-                output_format=f"pcm_{sample_rate}",
-                voice_settings={
-                    "stability": 0.5,
-                    "similarity_boost": 0.75,
-                    "style": 0.0,
-                    "use_speaker_boost": True,
-                },
-            )
+            # Run synchronous ElevenLabs SDK call + audio collection in thread pool
+            # to avoid blocking the async event loop
+            def _generate_and_collect():
+                audio_stream = client.text_to_speech.convert(
+                    text=text,
+                    voice_id=voice_id,
+                    model_id=self.model_id,
+                    output_format=f"pcm_{sample_rate}",
+                    voice_settings={
+                        "stability": 0.5,
+                        "similarity_boost": 0.75,
+                        "style": 0.0,
+                        "use_speaker_boost": True,
+                    },
+                )
+                return list(audio_stream)  # Collect all chunks in thread
 
-            # ElevenLabs returns an iterator of audio bytes
-            # We accumulate into ~1 second chunks for smooth avatar speech
-            chunk_size = sample_rate * 2  # 1 second of PCM 16Bit = sample_rate * 2 bytes
+            raw_chunks = await asyncio.to_thread(_generate_and_collect)
+
+            # Re-chunk into ~0.5 second pieces for smooth avatar speech
+            chunk_size = sample_rate  # 0.5 sec of PCM 16Bit
             buffer = bytearray()
 
-            for audio_chunk in audio_stream:
+            for audio_chunk in raw_chunks:
                 buffer.extend(audio_chunk)
 
-                # Yield complete chunks (~1 second each)
                 while len(buffer) >= chunk_size:
                     yield bytes(buffer[:chunk_size])
                     buffer = buffer[chunk_size:]
