@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     elevenlabs_api_key: str = ""
     elevenlabs_default_voice_id: str = ""
     elevenlabs_model_id: str = "eleven_multilingual_v2"
+    elevenlabs_turbo_model_id: str = "eleven_turbo_v2_5"  # Faster model for greetings
     tts_sample_rate: int = 24000  # PCM 16Bit 24KHz for LiveAvatar LITE
 
     # STT — Deepgram + OpenAI Whisper

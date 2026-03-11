@@ -85,6 +85,7 @@ class TTSProviderFactory:
         cls,
         provider_name: str = "elevenlabs",
         api_key: Optional[str] = None,
+        model_id: Optional[str] = None,
     ) -> BaseTTSProvider:
         """
         Get or create a TTS provider instance.
@@ -92,16 +93,20 @@ class TTSProviderFactory:
         Args:
             provider_name: "elevenlabs" (more providers can be added)
             api_key: Optional API key override (per-tenant)
+            model_id: Optional model override (e.g. turbo model for greetings)
 
         Returns:
             BaseTTSProvider instance
         """
-        cache_key = f"{provider_name}:{api_key or 'default'}"
+        cache_key = f"{provider_name}:{api_key or 'default'}:{model_id or 'default'}"
 
         if cache_key not in cls._providers:
             if provider_name == "elevenlabs":
                 from services.tts.elevenlabs_provider import ElevenLabsProvider
-                cls._providers[cache_key] = ElevenLabsProvider(api_key=api_key)
+                cls._providers[cache_key] = ElevenLabsProvider(
+                    api_key=api_key,
+                    model_id=model_id,
+                )
             else:
                 raise ValueError(f"Unknown TTS provider: {provider_name}")
 

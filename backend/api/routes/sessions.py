@@ -16,6 +16,7 @@ LITE Mode Session Flow:
 """
 
 import asyncio
+import time
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional
@@ -98,6 +99,7 @@ async def create_session(
     # Step 1: Get session token from LiveAvatar API
     liveavatar = LiveAvatarClient()
     livekit_mgr = LiveKitManager()
+    t_api_start = time.monotonic()
 
     try:
         # Optionally use own LiveKit instance
@@ -112,6 +114,7 @@ async def create_session(
             is_sandbox=request.is_sandbox,
             livekit_config=livekit_config,
         )
+        t_token = time.monotonic()
 
         # Store token info in DB
         db_session.liveavatar_session_id = la_session.session_id
@@ -121,6 +124,7 @@ async def create_session(
 
         # Step 2: Start session → returns LiveKit URL + tokens
         start_result = await liveavatar.start_session(la_session.session_token)
+        t_start = time.monotonic()
 
         # Update DB with LiveKit connection details from Start Session response
         db_session.livekit_url = start_result.livekit_url or ""
@@ -130,9 +134,12 @@ async def create_session(
         db_session.ws_status = "connecting"
 
         logger.info(
-            "Session created and started",
+            "Session created and started — TIMING",
             session_id=db_session.id,
             la_session_id=la_session.session_id,
+            create_token_ms=round((t_token - t_api_start) * 1000),
+            start_session_ms=round((t_start - t_token) * 1000),
+            total_api_ms=round((t_start - t_api_start) * 1000),
             livekit_url=db_session.livekit_url[:50] if db_session.livekit_url else "none",
             has_client_token=bool(db_session.livekit_token),
             has_ws_url=bool(db_session.ws_url),
@@ -362,51 +369,119 @@ async def _setup_session_services(
     """
     Background task: connect WebSocket + start LiveKit agent + send greeting.
 
-    Called after session token is created. Sets up:
-    1. WebSocket connection to LiveAvatar for audio commands (CRITICAL for lip-sync)
-    2. Send greeting IMMEDIATELY after WS connects (no DB query needed — tenant passed directly)
-    3. LiveKit agent for capturing user audio → STT (OPTIONAL, graceful fail)
+    OPTIMIZED: TTS pre-generation runs IN PARALLEL with WS connect.
+    This way, audio is ready the instant WS becomes "connected".
+
+    Pipeline:
+    1. Start WS connect + TTS pre-generation SIMULTANEOUSLY
+    2. When both complete, send cached audio immediately
+    3. Start LiveKit agent (optional, non-blocking)
     """
-    # Step 1: Connect WebSocket to LiveAvatar (CRITICAL — required for lip-sync)
-    try:
+    t0 = time.monotonic()
+    engine = get_engine()
+
+    # === PARALLEL PHASE: WS connect + TTS pre-generation run simultaneously ===
+
+    async def _connect_ws():
+        """Connect WebSocket and wait for 'connected' state."""
+        t_ws0 = time.monotonic()
         ws_manager = LiveAvatarWSManager(
             ws_url=ws_url,
             session_token=session_token,
             session_id=la_session_id,
         )
         await ws_manager.connect()
+        t_ws1 = time.monotonic()
+        logger.info(
+            "WS connect complete — TIMING",
+            session_id=session_id,
+            ws_connect_ms=round((t_ws1 - t_ws0) * 1000),
+        )
+        return ws_manager
+
+    async def _pre_generate_tts():
+        """Pre-generate greeting TTS audio (uses cache if available)."""
+        if not greeting_text or not tenant:
+            return
+        t_tts0 = time.monotonic()
+        await engine.pre_generate_greeting_audio(
+            tenant=tenant,
+            greeting_text=greeting_text,
+            language=language,
+        )
+        t_tts1 = time.monotonic()
+        logger.info(
+            "TTS pre-generation complete — TIMING",
+            session_id=session_id,
+            tts_pregen_ms=round((t_tts1 - t_tts0) * 1000),
+        )
+
+    # Step 1: Run WS connect + TTS pre-generation IN PARALLEL
+    ws_manager = None
+    try:
+        results = await asyncio.gather(
+            _connect_ws(),
+            _pre_generate_tts(),
+            return_exceptions=True,
+        )
+
+        # Check WS result
+        if isinstance(results[0], Exception):
+            logger.error(
+                "Failed to connect WebSocket — avatar lip-sync will not work",
+                session_id=session_id,
+                error=str(results[0]),
+            )
+            return  # Without WS, no point continuing
+
+        ws_manager = results[0]
         _ws_managers[session_id] = ws_manager
 
-        # Register in conversation engine (shared singleton)
-        engine = get_engine()
+        # Register in conversation engine
         engine.register_ws_manager(session_id, ws_manager)
         engine.set_session_language(session_id, language)
 
-        logger.info("WebSocket connected for session", session_id=session_id, language=language)
+        t_parallel = time.monotonic()
+        logger.info(
+            "Parallel WS+TTS phase complete — TIMING",
+            session_id=session_id,
+            parallel_phase_ms=round((t_parallel - t0) * 1000),
+            language=language,
+        )
+
+        # Check TTS pre-gen result (non-fatal)
+        if isinstance(results[1], Exception):
+            logger.warning(
+                "TTS pre-generation failed (will generate on-the-fly)",
+                error=str(results[1]),
+            )
 
     except Exception as e:
         logger.error(
-            "Failed to connect WebSocket — avatar lip-sync will not work",
+            "Failed in parallel setup phase",
             session_id=session_id,
             error=str(e),
         )
-        return  # Without WS, no point continuing
+        return
 
-    # Step 2: Send greeting IMMEDIATELY after WS is ready (no DB round-trip)
+    # Step 2: Send greeting — audio should be cached from parallel phase
     if greeting_text and tenant:
         try:
-            engine = get_engine()
+            t_greet0 = time.monotonic()
             sent = await engine.send_greeting_direct(
                 session_id=session_id,
                 tenant=tenant,
                 greeting_text=greeting_text,
                 language=language,
             )
+            t_greet1 = time.monotonic()
             logger.info(
-                "Auto-greeting sent after WS connect",
+                "Auto-greeting sent — TIMING",
                 session_id=session_id,
                 language=language,
                 sent=sent,
+                greeting_send_ms=round((t_greet1 - t_greet0) * 1000),
+                total_setup_ms=round((t_greet1 - t0) * 1000),
             )
         except Exception as e:
             logger.warning(
@@ -429,7 +504,6 @@ async def _setup_session_services(
             language=language,
         )
 
-        # Register transcription callback → feeds into conversation engine
         async def on_transcription(result):
             if result.is_final and result.text:
                 logger.info(
@@ -437,7 +511,6 @@ async def _setup_session_services(
                     text=result.text[:80],
                     session=session_id,
                 )
-                # TODO: Auto-process transcribed speech through ConversationEngine
 
         agent.on_transcription(on_transcription)
         await agent.start()

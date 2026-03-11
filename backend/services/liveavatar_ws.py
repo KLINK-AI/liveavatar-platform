@@ -64,6 +64,7 @@ class LiveAvatarWSManager:
         # State
         self.avatar_speaking = False
         self.session_state = "disconnected"
+        self._connected_event = asyncio.Event()  # Fires when session.state_updated=connected
 
     # --- Connection Management ---
 
@@ -100,20 +101,17 @@ class LiveAvatarWSManager:
             self._receive_task = asyncio.create_task(self._receive_loop())
 
             # Wait for server to confirm "connected" state (required before sending events)
-            for _ in range(50):  # up to 5 seconds
-                if self.session_state == "connected":
-                    break
-                await asyncio.sleep(0.1)
-
-            if self.session_state != "connected":
+            # Use asyncio.Event for instant notification instead of polling
+            try:
+                await asyncio.wait_for(self._connected_event.wait(), timeout=5.0)
+                logger.info(
+                    "LiveAvatar session confirmed connected",
+                    session_id=self.session_id,
+                )
+            except asyncio.TimeoutError:
                 logger.warning(
                     "Session state not 'connected' after 5s, proceeding anyway",
                     state=self.session_state,
-                    session_id=self.session_id,
-                )
-            else:
-                logger.info(
-                    "LiveAvatar session confirmed connected",
                     session_id=self.session_id,
                 )
 
@@ -278,6 +276,8 @@ class LiveAvatarWSManager:
                     if event_type == "session.state_updated":
                         self.session_state = event.get("state", "unknown")
                         logger.info("Session state updated", state=self.session_state)
+                        if self.session_state == "connected":
+                            self._connected_event.set()
 
                     elif event_type == "agent.speak_started":
                         self.avatar_speaking = True

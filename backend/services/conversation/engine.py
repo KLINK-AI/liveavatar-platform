@@ -18,6 +18,7 @@ OLD (removed): Text → HeyGen streaming.task (text-based lip-sync)
 
 from typing import Optional, AsyncIterator
 import asyncio
+import time
 import structlog
 
 from config import get_settings
@@ -323,6 +324,7 @@ class ConversationEngine:
         audio_chunks: list[bytes],
     ) -> bool:
         """Send pre-cached audio chunks directly to avatar (skip TTS)."""
+        t0 = time.monotonic()
         ws_manager = self._ws_managers.get(session_id)
         if not ws_manager or not ws_manager.is_connected:
             logger.warning("No WebSocket connection for cached audio", session_id=session_id)
@@ -333,11 +335,68 @@ class ConversationEngine:
             for chunk in audio_chunks:
                 await ws_manager.send_speak_from_bytes(chunk)
             await ws_manager.send_speak_end()
-            logger.info("Cached audio sent to avatar", session_id=session_id, chunks=len(audio_chunks))
+            elapsed = (time.monotonic() - t0) * 1000
+            total_bytes = sum(len(c) for c in audio_chunks)
+            logger.info(
+                "Cached audio sent to avatar — TIMING",
+                session_id=session_id,
+                chunks=len(audio_chunks),
+                total_bytes=total_bytes,
+                send_ms=round(elapsed),
+            )
             return True
         except Exception as e:
             logger.error("Failed to send cached audio", error=str(e), session_id=session_id)
             return False
+
+    async def pre_generate_greeting_audio(
+        self,
+        tenant: Tenant,
+        greeting_text: str,
+        language: str = "de",
+    ):
+        """
+        Pre-generate and cache greeting audio WITHOUT sending it.
+        Call this during session creation (before WS is ready) to
+        eliminate TTS latency from the greeting pipeline.
+        """
+        if not greeting_text:
+            return
+
+        cache_key = f"{tenant.slug}:{language}:{hash(greeting_text)}"
+        if cache_key in self._greeting_audio_cache:
+            logger.info("Greeting audio already cached", cache_key=cache_key)
+            return
+
+        t0 = time.monotonic()
+        # Use turbo model for faster greeting generation
+        tts = TTSProviderFactory.get_provider(
+            provider_name="elevenlabs",
+            api_key=tenant.elevenlabs_api_key,
+            model_id=settings.elevenlabs_turbo_model_id,
+        )
+        voice_id = self._get_voice_id(tenant)
+        chunks: list[bytes] = []
+
+        try:
+            async for audio_chunk in tts.text_to_speech_stream(
+                text=greeting_text,
+                voice_id=voice_id,
+                sample_rate=settings.tts_sample_rate,
+            ):
+                chunks.append(audio_chunk)
+
+            if chunks:
+                self._greeting_audio_cache[cache_key] = chunks
+                elapsed = (time.monotonic() - t0) * 1000
+                logger.info(
+                    "Greeting audio PRE-GENERATED and cached",
+                    cache_key=cache_key,
+                    chunks=len(chunks),
+                    elapsed_ms=round(elapsed),
+                )
+        except Exception as e:
+            logger.warning("Failed to pre-generate greeting audio", error=str(e))
 
     async def send_greeting_direct(
         self,
@@ -350,7 +409,9 @@ class ConversationEngine:
         Send a pre-resolved greeting text directly to the avatar.
         Uses an in-memory audio cache: first call generates TTS, subsequent
         calls for the same tenant+language+text skip TTS entirely (~0ms).
+        Uses turbo model for faster first-time generation.
         """
+        t_start = time.monotonic()
         self.set_session_language(session_id, language)
 
         if not greeting_text:
@@ -362,28 +423,44 @@ class ConversationEngine:
         cached_chunks = self._greeting_audio_cache.get(cache_key)
 
         if cached_chunks:
+            t_cache = time.monotonic()
             logger.info(
                 "Sending CACHED greeting audio (skip TTS)",
                 language=language,
                 cache_key=cache_key,
                 chunks=len(cached_chunks),
+                cache_lookup_ms=round((t_cache - t_start) * 1000),
             )
             sent = await self._send_cached_audio_to_avatar(session_id, cached_chunks)
+            t_sent = time.monotonic()
+            logger.info(
+                "CACHED greeting send complete",
+                sent=sent,
+                send_ms=round((t_sent - t_cache) * 1000),
+                total_ms=round((t_sent - t_start) * 1000),
+            )
         else:
             logger.info(
-                "Sending greeting (direct, first time — will cache)",
+                "Sending greeting (direct, first time — will cache, turbo model)",
                 language=language,
                 greeting_length=len(greeting_text),
             )
-            # Generate TTS and cache the audio chunks
+            # Generate TTS with TURBO model and cache the audio chunks
             sent, chunks = await self._send_audio_to_avatar_and_cache(
                 session_id=session_id,
                 tenant=tenant,
                 text=greeting_text,
+                use_turbo=True,
             )
+            t_done = time.monotonic()
             if sent and chunks:
                 self._greeting_audio_cache[cache_key] = chunks
-                logger.info("Greeting audio cached", cache_key=cache_key, chunks=len(chunks))
+                logger.info(
+                    "Greeting audio generated + cached",
+                    cache_key=cache_key,
+                    chunks=len(chunks),
+                    total_ms=round((t_done - t_start) * 1000),
+                )
 
         if sent:
             memory = self._get_memory(session_id)
@@ -396,13 +473,21 @@ class ConversationEngine:
         session_id: str,
         tenant: Tenant,
         text: str,
+        use_turbo: bool = False,
     ) -> tuple[bool, list[bytes]]:
         """Like _send_audio_to_avatar but also returns the audio chunks for caching."""
         ws_manager = self._ws_managers.get(session_id)
         if not ws_manager or not ws_manager.is_connected:
             return False, []
 
-        tts = self._get_tts_for_tenant(tenant)
+        if use_turbo:
+            tts = TTSProviderFactory.get_provider(
+                provider_name="elevenlabs",
+                api_key=tenant.elevenlabs_api_key,
+                model_id=settings.elevenlabs_turbo_model_id,
+            )
+        else:
+            tts = self._get_tts_for_tenant(tenant)
         voice_id = self._get_voice_id(tenant)
         cached_chunks: list[bytes] = []
 

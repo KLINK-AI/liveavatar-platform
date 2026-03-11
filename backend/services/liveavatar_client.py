@@ -24,6 +24,7 @@ Auth: X-API-KEY header
 
 from dataclasses import dataclass, field
 from typing import Optional
+import time
 import httpx
 import structlog
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -82,11 +83,11 @@ class LiveAvatarClient:
                     "Content-Type": "application/json",
                     "Accept": "application/json",
                 },
-                timeout=30.0,
+                timeout=15.0,  # Reduced from 30s for faster failure detection
             )
         return self._client
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=10))
+    @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=0.5, min=0.5, max=3))
     async def create_session_token(
         self,
         avatar_id: str,
@@ -138,9 +139,12 @@ class LiveAvatarClient:
             custom_livekit=bool(livekit_config),
         )
 
+        t0 = time.monotonic()
         response = await client.post("/v1/sessions/token", json=payload)
         response.raise_for_status()
         data = response.json()
+        t1 = time.monotonic()
+        logger.info("create_session_token HTTP — TIMING", elapsed_ms=round((t1 - t0) * 1000))
 
         # Handle API error responses
         if data.get("error"):
@@ -179,6 +183,7 @@ class LiveAvatarClient:
             LiveAvatarStartResult with livekit_url, livekit_client_token, ws_url etc.
         """
         # Start Session uses Bearer token auth (the session_token), not X-API-KEY
+        t0 = time.monotonic()
         async with httpx.AsyncClient(
             base_url=self.base_url,
             headers={
@@ -186,12 +191,14 @@ class LiveAvatarClient:
                 "Content-Type": "application/json",
                 "Accept": "application/json",
             },
-            timeout=30.0,
+            timeout=15.0,
         ) as client:
             response = await client.post("/v1/sessions/start")
             response.raise_for_status()
             data = response.json()
+        t1 = time.monotonic()
 
+        logger.info("start_session HTTP — TIMING", elapsed_ms=round((t1 - t0) * 1000))
         logger.info(
             "LiveAvatar start_session raw response",
             status_code=response.status_code,
