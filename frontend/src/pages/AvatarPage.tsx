@@ -256,10 +256,10 @@ export default function AvatarPage() {
           )}
         </div>
 
-        {/* Main Layout — grid with matched heights */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        {/* Main Layout — avatar and chat side by side, same height */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Avatar Video / Preview — unified wrapper ensures consistent size */}
-          <div>
+          <div className="flex flex-col">
             <div className="avatar-wrapper shadow-2xl">
               {session?.livekitUrl && session?.livekitToken ? (
                 /* Active session: show live avatar video */
@@ -328,8 +328,8 @@ export default function AvatarPage() {
             )}
           </div>
 
-          {/* Chat Interface — height matches the avatar wrapper via aspect ratio */}
-          <div className="lg:max-h-[calc(100vw*9/32)] lg:min-h-[280px]">
+          {/* Chat Interface — fixed height matching the avatar (16:9 aspect) */}
+          <div className="avatar-chat-column">
             <ChatInterface
               messages={messages}
               streamingText={streamingText}

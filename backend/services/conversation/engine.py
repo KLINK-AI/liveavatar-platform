@@ -316,6 +316,42 @@ class ConversationEngine:
 
         yield {"type": "done", "full_response": full_response}
 
+    async def send_greeting_direct(
+        self,
+        session_id: str,
+        tenant: Tenant,
+        greeting_text: str,
+        language: str = "de",
+    ) -> bool:
+        """
+        Send a pre-resolved greeting text directly to the avatar.
+        Faster than send_greeting() because it skips DB/tenant greeting resolution.
+        Used by the background task that already has the greeting text.
+        """
+        self.set_session_language(session_id, language)
+
+        if not greeting_text:
+            logger.info("No greeting text provided", session_id=session_id)
+            return False
+
+        logger.info(
+            "Sending greeting (direct) to avatar",
+            language=language,
+            greeting_length=len(greeting_text),
+        )
+
+        sent = await self._send_audio_to_avatar(
+            session_id=session_id,
+            tenant=tenant,
+            text=greeting_text,
+        )
+
+        if sent:
+            memory = self._get_memory(session_id)
+            memory.add_assistant_message(greeting_text)
+
+        return sent
+
     async def send_greeting(
         self,
         session_id: str,

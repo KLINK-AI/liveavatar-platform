@@ -36,20 +36,39 @@ body {
   object-fit: cover;
 }
 
-/* Chat interface styles — height syncs with player via grid */
+/* Chat column — fixed height matching the avatar's 16:9 aspect ratio */
+.avatar-chat-column {
+  /* On desktop (lg), match the avatar height exactly via aspect ratio */
+  height: auto;
+}
+@media (min-width: 1024px) {
+  .avatar-chat-column {
+    /* The avatar takes 50% of the grid width with 16:9 ratio.
+       Grid width = (container - gap) / 2. Height = width * 9/16.
+       Use the same aspect-ratio trick but as a fixed height. */
+    aspect-ratio: 16 / 9;
+    max-height: none;
+    overflow: hidden;
+  }
+}
+
+/* Chat interface styles — fills its parent exactly, no expanding */
 .chat-container {
   display: flex;
   flex-direction: column;
   height: 100%;
+  overflow: hidden;
 }
 
 .chat-messages {
   flex: 1;
   overflow-y: auto;
   padding: 1rem;
+  min-height: 0; /* Critical for flex shrink to work */
 }
 
 .chat-input-area {
   padding: 1rem;
   border-top: 1px solid #e5e7eb;
+  flex-shrink: 0;
 }

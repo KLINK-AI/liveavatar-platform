@@ -43,8 +43,8 @@ export default function ChatInterface({
 
   return (
     <div className="chat-container bg-white rounded-xl shadow-lg border border-gray-200">
-      {/* Messages Area */}
-      <div className="chat-messages flex-1 overflow-y-auto p-4 space-y-4 min-h-[200px]">
+      {/* Messages Area — scrollable, no min-height to prevent expansion */}
+      <div className="chat-messages flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 && (
           <div className="text-center text-gray-400 py-12">
             <p className="text-lg mb-1">Willkommen!</p>

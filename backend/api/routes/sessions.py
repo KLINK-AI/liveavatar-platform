@@ -138,7 +138,17 @@ async def create_session(
             has_ws_url=bool(db_session.ws_url),
         )
 
-        # Step 3: Connect WebSocket for LITE Mode commands (background)
+        # Step 3: Resolve greeting text for the selected language (before background task)
+        greeting_text = ""
+        lang = request.language
+        if lang == tenant.default_language:
+            greeting_text = tenant.greeting_text or ""
+        elif tenant.greeting_translations:
+            greeting_text = tenant.greeting_translations.get(lang, "")
+        if not greeting_text:
+            greeting_text = tenant.greeting_text or ""
+
+        # Step 4: Connect WebSocket + send greeting + start STT agent (background)
         if start_result.ws_url and la_session.session_token:
             background_tasks.add_task(
                 _setup_session_services,
@@ -151,7 +161,8 @@ async def create_session(
                     start_result.livekit_agent_token
                     or livekit_mgr.generate_stt_agent_token(f"avatar-{db_session.id}")
                 ),
-                tenant_id=tenant.id,
+                tenant=tenant,
+                greeting_text=greeting_text,
                 stt_provider=tenant.stt_provider,
                 language=request.language,
             )
@@ -247,9 +258,10 @@ async def stop_session(
     if agent:
         await agent.stop()
 
-    # Unregister from conversation engine
+    # Unregister from conversation engine + clean up all session state
     engine = get_engine()
     engine.unregister_ws_manager(session_id)
+    engine.clear_memory(session_id)
 
     # Update DB
     db_session.status = SessionStatus.CLOSED
@@ -342,7 +354,8 @@ async def _setup_session_services(
     session_token: str,
     livekit_url: str,
     livekit_agent_token: str,
-    tenant_id: str = "",
+    tenant: "Tenant" = None,
+    greeting_text: str = "",
     stt_provider: Optional[str] = None,
     language: str = "de",
 ):
@@ -351,7 +364,7 @@ async def _setup_session_services(
 
     Called after session token is created. Sets up:
     1. WebSocket connection to LiveAvatar for audio commands (CRITICAL for lip-sync)
-    2. Send greeting IMMEDIATELY after WS connects (no frontend delay needed)
+    2. Send greeting IMMEDIATELY after WS connects (no DB query needed — tenant passed directly)
     3. LiveKit agent for capturing user audio → STT (OPTIONAL, graceful fail)
     """
     # Step 1: Connect WebSocket to LiveAvatar (CRITICAL — required for lip-sync)
@@ -379,40 +392,30 @@ async def _setup_session_services(
         )
         return  # Without WS, no point continuing
 
-    # Step 2: Send greeting IMMEDIATELY after WS is ready (eliminates frontend delay)
-    try:
-        from database import async_session_factory
-        from models.tenant import Tenant as TenantModel
-
-        async with async_session_factory() as db:
-            from sqlalchemy import select
-            result = await db.execute(
-                select(TenantModel).where(TenantModel.id == tenant_id)
+    # Step 2: Send greeting IMMEDIATELY after WS is ready (no DB round-trip)
+    if greeting_text and tenant:
+        try:
+            engine = get_engine()
+            sent = await engine.send_greeting_direct(
+                session_id=session_id,
+                tenant=tenant,
+                greeting_text=greeting_text,
+                language=language,
             )
-            tenant = result.scalar_one_or_none()
-
-            if tenant:
-                engine = get_engine()
-                sent = await engine.send_greeting(
-                    session_id=session_id,
-                    tenant=tenant,
-                    language=language,
-                )
-                logger.info(
-                    "Auto-greeting sent after WS connect",
-                    session_id=session_id,
-                    language=language,
-                    sent=sent,
-                )
-            else:
-                logger.warning("Could not load tenant for greeting", tenant_id=tenant_id)
-
-    except Exception as e:
-        logger.warning(
-            "Auto-greeting failed — user can still trigger via REST",
-            session_id=session_id,
-            error=str(e),
-        )
+            logger.info(
+                "Auto-greeting sent after WS connect",
+                session_id=session_id,
+                language=language,
+                sent=sent,
+            )
+        except Exception as e:
+            logger.warning(
+                "Auto-greeting failed — user can still trigger via REST",
+                session_id=session_id,
+                error=str(e),
+            )
+    else:
+        logger.info("No greeting text configured, skipping auto-greeting", session_id=session_id)
 
     # Step 3: Start LiveKit agent for STT (OPTIONAL — text input still works without it)
     try:
