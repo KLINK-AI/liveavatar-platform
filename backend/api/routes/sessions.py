@@ -99,6 +99,7 @@ async def create_session(
     # Step 1: Get session token from LiveAvatar API
     liveavatar = LiveAvatarClient()
     livekit_mgr = LiveKitManager()
+    engine = get_engine()
     t_api_start = time.monotonic()
 
     try:
@@ -122,7 +123,30 @@ async def create_session(
         db_session.livekit_room_name = f"avatar-{db_session.id}"
         db_session.status = SessionStatus.CREATING
 
+        # OPTIMIZATION: Resolve greeting text NOW and start TTS pre-generation
+        # PARALLEL with start_session() — so TTS runs during the ~2.8s REST call
+        greeting_text = ""
+        lang = request.language
+        if lang == tenant.default_language:
+            greeting_text = tenant.greeting_text or ""
+        elif tenant.greeting_translations:
+            greeting_text = tenant.greeting_translations.get(lang, "")
+        if not greeting_text:
+            greeting_text = tenant.greeting_text or ""
+
+        # Fire-and-forget TTS pre-generation (runs during start_session REST call)
+        tts_task = None
+        if greeting_text:
+            tts_task = asyncio.create_task(
+                engine.pre_generate_greeting_audio(
+                    tenant=tenant,
+                    greeting_text=greeting_text,
+                    language=lang,
+                )
+            )
+
         # Step 2: Start session → returns LiveKit URL + tokens
+        # TTS pre-generation runs IN PARALLEL with this REST call
         start_result = await liveavatar.start_session(la_session.session_token)
         t_start = time.monotonic()
 
@@ -143,19 +167,10 @@ async def create_session(
             livekit_url=db_session.livekit_url[:50] if db_session.livekit_url else "none",
             has_client_token=bool(db_session.livekit_token),
             has_ws_url=bool(db_session.ws_url),
+            tts_prestarted=bool(tts_task),
         )
 
-        # Step 3: Resolve greeting text for the selected language (before background task)
-        greeting_text = ""
-        lang = request.language
-        if lang == tenant.default_language:
-            greeting_text = tenant.greeting_text or ""
-        elif tenant.greeting_translations:
-            greeting_text = tenant.greeting_translations.get(lang, "")
-        if not greeting_text:
-            greeting_text = tenant.greeting_text or ""
-
-        # Step 4: Connect WebSocket + send greeting + start STT agent (background)
+        # Step 3: Connect WebSocket + send greeting + start STT agent (background)
         if start_result.ws_url and la_session.session_token:
             background_tasks.add_task(
                 _setup_session_services,
@@ -172,6 +187,7 @@ async def create_session(
                 greeting_text=greeting_text,
                 stt_provider=tenant.stt_provider,
                 language=request.language,
+                tts_task=tts_task,
             )
 
     except LiveAvatarError as e:
@@ -365,104 +381,79 @@ async def _setup_session_services(
     greeting_text: str = "",
     stt_provider: Optional[str] = None,
     language: str = "de",
+    tts_task: Optional[asyncio.Task] = None,
 ):
     """
-    Background task: connect WebSocket + start LiveKit agent + send greeting.
+    Background task: connect WebSocket + send greeting + start STT agent.
 
-    OPTIMIZED: TTS pre-generation runs IN PARALLEL with WS connect.
-    This way, audio is ready the instant WS becomes "connected".
+    OPTIMIZED v2:
+    - TTS pre-generation was already started DURING the start_session REST call
+      (before this background task even begins)
+    - WS connect no longer blocks waiting for "connected" state (~5s → ~0.6s)
+    - Net effect: greeting plays ~6-7 seconds sooner than before
 
     Pipeline:
-    1. Start WS connect + TTS pre-generation SIMULTANEOUSLY
-    2. When both complete, send cached audio immediately
-    3. Start LiveKit agent (optional, non-blocking)
+    1. Connect WS (non-blocking, ~600ms TCP/TLS only)
+    2. Await TTS task if still running (likely already done)
+    3. Send cached audio immediately
+    4. Start LiveKit agent (optional)
     """
     t0 = time.monotonic()
     engine = get_engine()
 
-    # === PARALLEL PHASE: WS connect + TTS pre-generation run simultaneously ===
-
-    async def _connect_ws():
-        """Connect WebSocket and wait for 'connected' state."""
+    # === Step 1: Connect WebSocket (non-blocking — no wait for "connected" state) ===
+    ws_manager = None
+    try:
         t_ws0 = time.monotonic()
         ws_manager = LiveAvatarWSManager(
             ws_url=ws_url,
             session_token=session_token,
             session_id=la_session_id,
         )
-        await ws_manager.connect()
+        await ws_manager.connect()  # Non-blocking: just TCP/TLS, no wait for "connected"
         t_ws1 = time.monotonic()
-        logger.info(
-            "WS connect complete — TIMING",
-            session_id=session_id,
-            ws_connect_ms=round((t_ws1 - t_ws0) * 1000),
-        )
-        return ws_manager
 
-    async def _pre_generate_tts():
-        """Pre-generate greeting TTS audio (uses cache if available)."""
-        if not greeting_text or not tenant:
-            return
-        t_tts0 = time.monotonic()
-        await engine.pre_generate_greeting_audio(
-            tenant=tenant,
-            greeting_text=greeting_text,
-            language=language,
-        )
-        t_tts1 = time.monotonic()
-        logger.info(
-            "TTS pre-generation complete — TIMING",
-            session_id=session_id,
-            tts_pregen_ms=round((t_tts1 - t_tts0) * 1000),
-        )
-
-    # Step 1: Run WS connect + TTS pre-generation IN PARALLEL
-    ws_manager = None
-    try:
-        results = await asyncio.gather(
-            _connect_ws(),
-            _pre_generate_tts(),
-            return_exceptions=True,
-        )
-
-        # Check WS result
-        if isinstance(results[0], Exception):
-            logger.error(
-                "Failed to connect WebSocket — avatar lip-sync will not work",
-                session_id=session_id,
-                error=str(results[0]),
-            )
-            return  # Without WS, no point continuing
-
-        ws_manager = results[0]
         _ws_managers[session_id] = ws_manager
-
-        # Register in conversation engine
         engine.register_ws_manager(session_id, ws_manager)
         engine.set_session_language(session_id, language)
 
-        t_parallel = time.monotonic()
         logger.info(
-            "Parallel WS+TTS phase complete — TIMING",
+            "WS connect complete (non-blocking) — TIMING",
             session_id=session_id,
-            parallel_phase_ms=round((t_parallel - t0) * 1000),
-            language=language,
+            ws_connect_ms=round((t_ws1 - t_ws0) * 1000),
         )
-
-        # Check TTS pre-gen result (non-fatal)
-        if isinstance(results[1], Exception):
-            logger.warning(
-                "TTS pre-generation failed (will generate on-the-fly)",
-                error=str(results[1]),
-            )
 
     except Exception as e:
         logger.error(
-            "Failed in parallel setup phase",
+            "Failed to connect WebSocket — avatar lip-sync will not work",
             session_id=session_id,
             error=str(e),
         )
         return
+
+    # === Step 2: Ensure TTS is ready (was started during REST calls, likely done already) ===
+    if tts_task and not tts_task.done():
+        t_tts_wait0 = time.monotonic()
+        try:
+            await asyncio.wait_for(asyncio.shield(tts_task), timeout=5.0)
+        except (asyncio.TimeoutError, Exception) as e:
+            logger.warning("TTS pre-task did not complete in time", error=str(e))
+        t_tts_wait1 = time.monotonic()
+        logger.info(
+            "TTS task await — TIMING",
+            session_id=session_id,
+            tts_wait_ms=round((t_tts_wait1 - t_tts_wait0) * 1000),
+            tts_was_done=tts_task.done() if tts_task else True,
+        )
+    elif tts_task and tts_task.done():
+        logger.info("TTS pre-generation already complete before background task", session_id=session_id)
+
+    t_setup = time.monotonic()
+    logger.info(
+        "Setup phase complete — TIMING",
+        session_id=session_id,
+        setup_phase_ms=round((t_setup - t0) * 1000),
+    )
 
     # Step 2: Send greeting — audio should be cached from parallel phase
     if greeting_text and tenant:

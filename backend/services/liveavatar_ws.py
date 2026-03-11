@@ -65,16 +65,26 @@ class LiveAvatarWSManager:
         self.avatar_speaking = False
         self.session_state = "disconnected"
         self._connected_event = asyncio.Event()  # Fires when session.state_updated=connected
+        self._connect_start_time: float = 0.0  # For diagnostic timing
 
     # --- Connection Management ---
 
-    async def connect(self, auto_heartbeat: bool = True):
+    async def connect(self, auto_heartbeat: bool = True, wait_for_ready: bool = False):
         """
         Establish WebSocket connection to LiveAvatar.
 
+        OPTIMIZED: Does NOT block waiting for "connected" state by default.
+        The TCP/TLS handshake is enough — events can be sent immediately.
+        The "session.state_updated=connected" event is logged diagnostically
+        when it arrives via _receive_loop().
+
         Args:
             auto_heartbeat: Start automatic keep-alive every 30s
+            wait_for_ready: If True, wait up to 2s for "connected" state (default: False)
         """
+        import time
+        self._connect_start_time = time.monotonic()
+
         try:
             # Build connection URL with auth
             url = self.ws_url
@@ -92,30 +102,34 @@ class LiveAvatarWSManager:
             self._connected = True
             self.session_state = "connecting"
 
+            tcp_elapsed = round((time.monotonic() - self._connect_start_time) * 1000)
             logger.info(
-                "LiveAvatar WebSocket connected (waiting for session.state_updated=connected)",
+                "LiveAvatar WebSocket TCP connected — TIMING",
                 session_id=self.session_id,
+                tcp_connect_ms=tcp_elapsed,
             )
 
             # Start receiving events in background
             self._receive_task = asyncio.create_task(self._receive_loop())
 
-            # Wait for server to confirm "connected" state (required before sending events)
-            # Use asyncio.Event for instant notification instead of polling
-            try:
-                await asyncio.wait_for(self._connected_event.wait(), timeout=5.0)
-                logger.info(
-                    "LiveAvatar session confirmed connected",
-                    session_id=self.session_id,
-                )
-            except asyncio.TimeoutError:
-                logger.warning(
-                    "Session state not 'connected' after 5s, proceeding anyway",
-                    state=self.session_state,
-                    session_id=self.session_id,
-                )
+            # OPTIMIZATION: Don't block waiting for "connected" state.
+            # The receive_loop will log when the server confirms "connected".
+            # Audio can be sent immediately after TCP/TLS handshake.
+            if wait_for_ready:
+                try:
+                    await asyncio.wait_for(self._connected_event.wait(), timeout=2.0)
+                    logger.info(
+                        "LiveAvatar session confirmed connected",
+                        session_id=self.session_id,
+                    )
+                except asyncio.TimeoutError:
+                    logger.info(
+                        "Session state not confirmed after 2s, proceeding (non-blocking)",
+                        state=self.session_state,
+                        session_id=self.session_id,
+                    )
 
-            # Start heartbeat
+            # Start heartbeat immediately
             if auto_heartbeat:
                 self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
@@ -275,9 +289,17 @@ class LiveAvatarWSManager:
                     # Update internal state
                     if event_type == "session.state_updated":
                         self.session_state = event.get("state", "unknown")
-                        logger.info("Session state updated", state=self.session_state)
                         if self.session_state == "connected":
+                            import time
+                            elapsed = round((time.monotonic() - self._connect_start_time) * 1000) if self._connect_start_time else -1
+                            logger.info(
+                                "Session state → connected (server confirmed) — TIMING",
+                                session_id=self.session_id,
+                                ms_since_ws_connect=elapsed,
+                            )
                             self._connected_event.set()
+                        else:
+                            logger.info("Session state updated", state=self.session_state, session_id=self.session_id)
 
                     elif event_type == "agent.speak_started":
                         self.avatar_speaking = True
