@@ -15,7 +15,7 @@ passlib[bcrypt]==1.7.4
 pydantic-settings==2.7.0
 
 # LiveAvatar LITE Mode API (REST + WebSocket)
-httpx==0.27.2
+httpx[http2]==0.27.2
 
 # LiveKit (WebRTC Streaming — Token-Generierung)
 livekit-api==0.7.1

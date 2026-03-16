@@ -213,7 +213,13 @@ class LiveAvatarClient:
             LiveAvatarStartResult with livekit_url, livekit_client_token, ws_url etc.
         """
         # Start Session uses Bearer token auth (the session_token), not X-API-KEY
-        logger.info("start_session — attempting API call")
+        #
+        # IMPORTANT: start_session REQUIRES HTTP/2!
+        # Diagnosed 2026-03-16: curl (HTTP/2) succeeds in ~6s, but httpx with
+        # forced HTTP/1.1 hangs indefinitely (ReadTimeout after 35s).
+        # The /v1/sessions/token endpoint works with HTTP/1.1, but /v1/sessions/start
+        # apparently needs HTTP/2 behind Cloudflare.
+        logger.info("start_session — attempting API call (HTTP/2)")
         t0 = time.monotonic()
         async with httpx.AsyncClient(
             base_url=self.base_url,
@@ -222,9 +228,8 @@ class LiveAvatarClient:
                 "Content-Type": "application/json",
                 "Accept": "application/json",
             },
-            timeout=35.0,
-            http1=True,
-            http2=False,
+            timeout=30.0,
+            http2=True,
         ) as client:
             response = await client.post("/v1/sessions/start")
             # Log response body before raising, for debugging 500 errors
@@ -298,8 +303,7 @@ class LiveAvatarClient:
                 "Accept": "application/json",
             },
             timeout=30.0,
-            http1=True,
-            http2=False,
+            http2=True,
         ) as client:
             response = await client.post("/v1/sessions/stop")
             response.raise_for_status()
@@ -324,8 +328,7 @@ class LiveAvatarClient:
                 "Accept": "application/json",
             },
             timeout=30.0,
-            http1=True,
-            http2=False,
+            http2=True,
         ) as client:
             response = await client.post("/v1/sessions/keep_alive")
             response.raise_for_status()
