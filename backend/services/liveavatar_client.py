@@ -95,7 +95,7 @@ class LiveAvatarClient:
             )
         return self._client
 
-    @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=1, max=5))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def create_session_token(
         self,
         avatar_id: str,
@@ -149,10 +149,18 @@ class LiveAvatarClient:
 
         t0 = time.monotonic()
         response = await client.post("/v1/sessions/token", json=payload)
-        response.raise_for_status()
-        data = response.json()
         t1 = time.monotonic()
         logger.info("create_session_token HTTP — TIMING", elapsed_ms=round((t1 - t0) * 1000))
+
+        # Log response body before raising, for debugging 500 errors
+        if response.status_code >= 400:
+            logger.warning(
+                "create_session_token non-2xx response",
+                status_code=response.status_code,
+                body=response.text[:500],
+            )
+        response.raise_for_status()
+        data = response.json()
 
         # Handle API error responses
         if data.get("error"):
@@ -176,6 +184,7 @@ class LiveAvatarClient:
 
         return session
 
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def start_session(self, session_token: str) -> LiveAvatarStartResult:
         """
         Step 2: Start the avatar streaming session.
@@ -183,6 +192,9 @@ class LiveAvatarClient:
         Must be called after create_session_token.
         Uses the session_token as Bearer auth.
         Returns LiveKit connection details for frontend + agent.
+
+        NOTE: Retry added because LiveAvatar API intermittently returns 500.
+        Diagnosed 2026-03-16: API is unstable, retries help.
 
         Args:
             session_token: Session token from create_session_token
@@ -204,6 +216,13 @@ class LiveAvatarClient:
             http2=False,
         ) as client:
             response = await client.post("/v1/sessions/start")
+            # Log response body before raising, for debugging 500 errors
+            if response.status_code >= 400:
+                logger.warning(
+                    "start_session non-2xx response",
+                    status_code=response.status_code,
+                    body=response.text[:500],
+                )
             response.raise_for_status()
             data = response.json()
         t1 = time.monotonic()
