@@ -8,7 +8,7 @@ import structlog
 
 from config import get_settings
 from database import init_db
-from api.routes import sessions, conversations, tenants, knowledge, admin
+from api.routes import sessions, conversations, tenants, knowledge, admin, tenant_admin
 
 settings = get_settings()
 logger = structlog.get_logger()
@@ -46,6 +46,7 @@ app.include_router(conversations.router, prefix="/api/v1/conversations", tags=["
 app.include_router(tenants.router, prefix="/api/v1/tenants", tags=["Tenants"])
 app.include_router(knowledge.router, prefix="/api/v1/knowledge", tags=["Knowledge Base"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
+app.include_router(tenant_admin.router, prefix="/api/v1/tenant-admin", tags=["Tenant Admin"])
 
 
 @app.get("/health")

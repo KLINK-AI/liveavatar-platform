@@ -19,11 +19,13 @@ from pydantic import BaseModel
 from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+import time
 
 from database import get_db
 from models.tenant import Tenant
 from models.session import AvatarSession, SessionStatus
 from models.conversation import Conversation, Message, MessageRole
+from models.chat_log import ChatLog
 from api.middleware.auth import get_current_tenant
 from services.engine_instance import get_engine
 
@@ -63,12 +65,14 @@ async def send_message(
     session = await _get_active_session(session_id, tenant.id, db)
 
     engine = get_engine()
+    t_start = time.monotonic()
     result = await engine.process_message(
         tenant=tenant,
         session_id=session_id,
         user_message=request.message,
         send_to_avatar=request.send_to_avatar,
     )
+    t_total = round((time.monotonic() - t_start) * 1000)
 
     # Store messages in DB
     conversation = session.conversations[0] if session.conversations else None
@@ -84,6 +88,23 @@ async def send_message(
             content=result["response"],
         ))
         session.message_count += 1
+
+    # Persistent chat log (for tenant admin dashboard)
+    usage = result.get("usage") or {}
+    db.add(ChatLog(
+        tenant_id=tenant.id,
+        session_id=session_id,
+        user_message=request.message,
+        bot_response=result["response"],
+        rag_used=result.get("context_used", False),
+        rag_sources=result.get("sources") or None,
+        duration_total_ms=t_total,
+        tokens_prompt=usage.get("prompt_tokens"),
+        tokens_completion=usage.get("completion_tokens"),
+        llm_provider=result.get("llm_provider"),
+        llm_model=result.get("llm_model"),
+        language=engine.get_session_language(session_id),
+    ))
 
     return MessageResponse(
         response=result["response"],

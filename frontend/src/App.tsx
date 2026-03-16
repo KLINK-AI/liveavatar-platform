@@ -3,6 +3,7 @@ import AvatarPage from './pages/AvatarPage'
 import AdminDashboard from './pages/admin/Dashboard'
 import TenantManager from './pages/admin/TenantManager'
 import KnowledgeBasePage from './pages/admin/KnowledgeBase'
+import TenantAdminDashboard from './pages/admin/TenantAdminDashboard'
 
 function App() {
   return (
@@ -10,7 +11,10 @@ function App() {
       {/* Public: Avatar widget (accessed via tenant slug) */}
       <Route path="/avatar/:tenantSlug" element={<AvatarPage />} />
 
-      {/* Admin Dashboard */}
+      {/* Tenant Admin (Kunden-Admin) */}
+      <Route path="/tenant-admin" element={<TenantAdminDashboard />} />
+
+      {/* Master Admin Dashboard */}
       <Route path="/admin" element={<AdminDashboard />} />
       <Route path="/admin/tenants" element={<TenantManager />} />
       <Route path="/admin/knowledge/:tenantId" element={<KnowledgeBasePage />} />
@@ -28,6 +32,9 @@ function App() {
             <div className="space-x-4">
               <a href="/admin" className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
                 Admin Dashboard
+              </a>
+              <a href="/tenant-admin" className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                Kunden-Admin
               </a>
             </div>
           </div>

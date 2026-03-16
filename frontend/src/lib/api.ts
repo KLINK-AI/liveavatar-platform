@@ -189,6 +189,64 @@ export const adminApi = {
     apiRequest(`/admin/stats/${slug}`, { token }),
 }
 
+// --- Tenant Admin API (Kunden-Admin) ---
+export const tenantAdminApi = {
+  // Auth
+  login: (email: string, password: string) =>
+    apiRequest('/admin/auth/login', {
+      method: 'POST',
+      body: { email, password },
+    }),
+
+  me: (token: string) =>
+    apiRequest('/admin/auth/me', { token }),
+
+  // Chat Logs
+  getChatLogs: (token: string, params?: {
+    page?: number; per_page?: number; search?: string;
+    rag_only?: boolean; date_from?: string; date_to?: string;
+  }) => {
+    const searchParams = new URLSearchParams()
+    if (params?.page) searchParams.set('page', String(params.page))
+    if (params?.per_page) searchParams.set('per_page', String(params.per_page))
+    if (params?.search) searchParams.set('search', params.search)
+    if (params?.rag_only) searchParams.set('rag_only', 'true')
+    if (params?.date_from) searchParams.set('date_from', params.date_from)
+    if (params?.date_to) searchParams.set('date_to', params.date_to)
+    const qs = searchParams.toString()
+    return apiRequest(`/tenant-admin/chat-logs${qs ? '?' + qs : ''}`, { token })
+  },
+
+  getChatLogDetail: (logId: string, token: string) =>
+    apiRequest(`/tenant-admin/chat-logs/${logId}`, { token }),
+
+  // Test Query
+  testQuery: (message: string, language: string, token: string) =>
+    apiRequest('/tenant-admin/test-query', {
+      method: 'POST',
+      token,
+      body: { message, language },
+    }),
+
+  // Analytics
+  getDocumentAnalytics: (token: string, days?: number) =>
+    apiRequest(`/tenant-admin/analytics/documents${days ? '?days=' + days : ''}`, { token }),
+
+  getAnalyticsOverview: (token: string, days?: number) =>
+    apiRequest(`/tenant-admin/analytics/overview${days ? '?days=' + days : ''}`, { token }),
+
+  // System Prompt
+  getSystemPrompt: (token: string) =>
+    apiRequest('/tenant-admin/system-prompt', { token }),
+
+  updateSystemPrompt: (systemPrompt: string, token: string) =>
+    apiRequest('/tenant-admin/system-prompt', {
+      method: 'PUT',
+      token,
+      body: { system_prompt: systemPrompt },
+    }),
+}
+
 // --- WebSocket for streaming ---
 export function createConversationSocket(
   sessionId: string,

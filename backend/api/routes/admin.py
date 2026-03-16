@@ -1,42 +1,73 @@
 """
-Admin API Routes — Dashboard and analytics.
+Admin API Routes — Dashboard, analytics, and authentication.
 
 Endpoints:
-- GET /stats           → Platform-wide statistics
-- GET /stats/{tenant}  → Per-tenant statistics
-- POST /auth/token     → Generate admin JWT token (username/password)
+- POST /auth/token       → Legacy admin JWT token (username/password)
+- POST /auth/login       → User-based login (email/password) — for tenant_admin + superadmin
+- POST /auth/users       → Create new user (superadmin only)
+- GET  /auth/users       → List users (superadmin only)
+- GET  /auth/me          → Get current user info
+- GET  /stats            → Platform-wide statistics
+- GET  /stats/{tenant}   → Per-tenant statistics
 """
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from datetime import timedelta
+from datetime import datetime, timedelta
 import secrets
+import structlog
 
 from config import get_settings
 from database import get_db
 from models.tenant import Tenant
 from models.session import AvatarSession, SessionStatus
 from models.conversation import Message
-from api.middleware.auth import create_access_token
+from models.user import User, UserRole
+from api.middleware.auth import (
+    create_access_token,
+    hash_password,
+    verify_password,
+    get_current_user,
+    require_role,
+)
 
 router = APIRouter()
 settings = get_settings()
+logger = structlog.get_logger()
 
+
+# --- Auth Request/Response Models ---
 
 class AuthRequest(BaseModel):
-    """Admin login with username and password."""
+    """Legacy admin login with username and password."""
     username: str
     password: str
 
 
+class LoginRequest(BaseModel):
+    """User-based login with email and password."""
+    email: str
+    password: str
+
+
+class CreateUserRequest(BaseModel):
+    """Create a new user (superadmin only)."""
+    email: str
+    password: str
+    display_name: str
+    role: str = "tenant_admin"
+    tenant_id: str | None = None
+
+
+# --- Auth Endpoints ---
+
 @router.post("/auth/token")
 async def get_admin_token(request: AuthRequest):
     """
-    Exchange admin username/password for a JWT token.
+    Legacy: Exchange admin username/password for a JWT token.
     The admin account manages ALL tenants.
-    Credentials are configured via ADMIN_USERNAME and ADMIN_PASSWORD env vars.
     """
     if not secrets.compare_digest(request.username, settings.admin_username):
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -54,6 +85,135 @@ async def get_admin_token(request: AuthRequest):
         "role": "admin",
     }
 
+
+@router.post("/auth/login")
+async def user_login(
+    request: LoginRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    User-based login: email + password → JWT token.
+    Works for both superadmin and tenant_admin users.
+    """
+    result = await db.execute(
+        select(User).where(User.email == request.email, User.is_active == True)
+    )
+    user = result.scalar_one_or_none()
+
+    if not user or not verify_password(request.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Ungültige Anmeldedaten")
+
+    token_data = {
+        "user_id": user.id,
+        "role": user.role.value,
+        "sub": user.email,
+    }
+    if user.tenant_id:
+        token_data["tenant_id"] = user.tenant_id
+
+    token = create_access_token(
+        data=token_data,
+        expires_delta=timedelta(hours=24),
+    )
+
+    user.last_login = datetime.utcnow()
+    logger.info("User login successful", email=user.email, role=user.role.value)
+
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "role": user.role.value,
+        "user_id": user.id,
+        "display_name": user.display_name,
+        "tenant_id": user.tenant_id,
+    }
+
+
+@router.get("/auth/me")
+async def get_current_user_info(
+    user: User = Depends(get_current_user),
+):
+    """Get the currently authenticated user's info."""
+    return {
+        "id": user.id,
+        "email": user.email,
+        "display_name": user.display_name,
+        "role": user.role.value,
+        "tenant_id": user.tenant_id,
+    }
+
+
+@router.post("/auth/users")
+async def create_user(
+    request: CreateUserRequest,
+    user: User = Depends(require_role(UserRole.SUPERADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a new user. Superadmin only."""
+    try:
+        role = UserRole(request.role)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid role: {request.role}")
+
+    if role == UserRole.TENANT_ADMIN and not request.tenant_id:
+        raise HTTPException(status_code=400, detail="tenant_id is required for tenant_admin role")
+
+    if request.tenant_id:
+        result = await db.execute(select(Tenant).where(Tenant.id == request.tenant_id))
+        if not result.scalar_one_or_none():
+            raise HTTPException(status_code=404, detail="Tenant not found")
+
+    result = await db.execute(select(User).where(User.email == request.email))
+    if result.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Email already registered")
+
+    new_user = User(
+        email=request.email,
+        password_hash=hash_password(request.password),
+        display_name=request.display_name,
+        role=role,
+        tenant_id=request.tenant_id,
+    )
+    db.add(new_user)
+    await db.flush()
+
+    logger.info("User created", email=new_user.email, role=role.value, tenant_id=request.tenant_id)
+
+    return {
+        "id": new_user.id,
+        "email": new_user.email,
+        "display_name": new_user.display_name,
+        "role": new_user.role.value,
+        "tenant_id": new_user.tenant_id,
+    }
+
+
+@router.get("/auth/users")
+async def list_users(
+    user: User = Depends(require_role(UserRole.SUPERADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all users. Superadmin only."""
+    result = await db.execute(select(User).order_by(User.created_at.desc()))
+    users = result.scalars().all()
+
+    return [
+        {
+            "id": u.id,
+            "email": u.email,
+            "display_name": u.display_name,
+            "role": u.role.value,
+            "tenant_id": u.tenant_id,
+            "tenant_name": u.tenant.name if u.tenant else None,
+            "is_active": u.is_active,
+            "last_login": u.last_login.isoformat() if u.last_login else None,
+            "created_at": u.created_at.isoformat(),
+        }
+        for u in users
+    ]
+
+
+# --- Stats Endpoints ---
 
 @router.get("/stats")
 async def get_platform_stats(
