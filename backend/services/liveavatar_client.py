@@ -27,7 +27,8 @@ from typing import Optional
 import time
 import httpx
 import structlog
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_log
+import logging
 
 from config import get_settings
 
@@ -95,7 +96,11 @@ class LiveAvatarClient:
             )
         return self._client
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(
+        stop=stop_after_attempt(2),
+        wait=wait_exponential(multiplier=1, min=2, max=8),
+        before_sleep=before_sleep_log(logging.getLogger("liveavatar"), logging.WARNING),
+    )
     async def create_session_token(
         self,
         avatar_id: str,
@@ -184,7 +189,11 @@ class LiveAvatarClient:
 
         return session
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(
+        stop=stop_after_attempt(2),
+        wait=wait_exponential(multiplier=1, min=2, max=8),
+        before_sleep=before_sleep_log(logging.getLogger("liveavatar"), logging.WARNING),
+    )
     async def start_session(self, session_token: str) -> LiveAvatarStartResult:
         """
         Step 2: Start the avatar streaming session.
@@ -194,7 +203,8 @@ class LiveAvatarClient:
         Returns LiveKit connection details for frontend + agent.
 
         NOTE: Retry added because LiveAvatar API intermittently returns 500.
-        Diagnosed 2026-03-16: API is unstable, retries help.
+        Timeout reduced to 35s (API usually responds in 20-30s, 60s was too long for UX).
+        Max 2 attempts → worst case ~75s instead of ~186s.
 
         Args:
             session_token: Session token from create_session_token
@@ -203,6 +213,7 @@ class LiveAvatarClient:
             LiveAvatarStartResult with livekit_url, livekit_client_token, ws_url etc.
         """
         # Start Session uses Bearer token auth (the session_token), not X-API-KEY
+        logger.info("start_session — attempting API call")
         t0 = time.monotonic()
         async with httpx.AsyncClient(
             base_url=self.base_url,
@@ -211,7 +222,7 @@ class LiveAvatarClient:
                 "Content-Type": "application/json",
                 "Accept": "application/json",
             },
-            timeout=60.0,
+            timeout=35.0,
             http1=True,
             http2=False,
         ) as client:
@@ -228,13 +239,19 @@ class LiveAvatarClient:
         t1 = time.monotonic()
 
         logger.info("start_session HTTP — TIMING", elapsed_ms=round((t1 - t0) * 1000))
+
+        # === DIAGNOSTIC: Log the FULL raw response to understand API structure ===
+        import json as _json
         logger.info(
-            "LiveAvatar start_session raw response",
-            status_code=response.status_code,
-            code=data.get("code"),
-            message=data.get("message"),
-            has_data=bool(data.get("data")),
-            data_keys=list(data.get("data", {}).keys()) if isinstance(data.get("data"), dict) else "not-dict",
+            "start_session FULL RAW RESPONSE",
+            raw_json=_json.dumps(data, default=str)[:2000],
+        )
+
+        session_data = data.get("data", data)
+        logger.info(
+            "start_session parsed session_data",
+            session_data_keys=list(session_data.keys()) if isinstance(session_data, dict) else "not-dict",
+            session_data_preview=_json.dumps(session_data, default=str)[:1000],
         )
 
         # Only raise on explicit error — code 100 is success per docs,
@@ -243,8 +260,6 @@ class LiveAvatarClient:
             raise LiveAvatarError(
                 f"Failed to start session: {data.get('message', data.get('error', 'Unknown'))}"
             )
-
-        session_data = data.get("data", data)
 
         result = LiveAvatarStartResult(
             session_id=session_data.get("session_id", ""),
@@ -256,12 +271,13 @@ class LiveAvatarClient:
         )
 
         logger.info(
-            "LiveAvatar session started",
+            "LiveAvatar session started — RESULT",
             session_id=result.session_id,
-            livekit_url=result.livekit_url[:50] if result.livekit_url else "none",
-            ws_url=result.ws_url[:50] if result.ws_url else "none",
+            livekit_url=result.livekit_url[:80] if result.livekit_url else "NONE",
+            ws_url=result.ws_url[:80] if result.ws_url else "NONE",
             has_client_token=bool(result.livekit_client_token),
             has_agent_token=bool(result.livekit_agent_token),
+            max_duration=result.max_session_duration,
         )
 
         return result

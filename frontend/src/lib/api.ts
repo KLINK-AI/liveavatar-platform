@@ -21,18 +21,39 @@ async function apiRequest(endpoint: string, options: RequestOptions = {}) {
   if (apiKey) headers['X-API-Key'] = apiKey
   if (token) headers['Authorization'] = `Bearer ${token}`
 
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  })
+  // Session creation can take up to 90s (LiveAvatar API is slow).
+  // Use AbortController to prevent infinite hangs.
+  const isSessionCreate = endpoint === '/sessions/' && method === 'POST'
+  const controller = new AbortController()
+  const timeoutMs = isSessionCreate ? 90000 : 30000
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Request failed' }))
-    throw new Error(error.detail || `HTTP ${response.status}`)
+  try {
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    })
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Request failed' }))
+      throw new Error(error.detail || `HTTP ${response.status}`)
+    }
+
+    return response.json()
+  } catch (e: any) {
+    if (e.name === 'AbortError') {
+      throw new Error(
+        isSessionCreate
+          ? 'Avatar-Server antwortet nicht. Bitte versuchen Sie es erneut.'
+          : 'Anfrage hat zu lange gedauert.'
+      )
+    }
+    throw e
+  } finally {
+    clearTimeout(timeoutId)
   }
-
-  return response.json()
 }
 
 /**
