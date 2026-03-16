@@ -4,10 +4,23 @@
  * Allows users to speak their questions via microphone.
  * Uses the Web Speech API for speech-to-text, then sends
  * the transcribed text through the conversation pipeline.
+ *
+ * Accepts short language codes ('de', 'en', etc.) and maps
+ * them to BCP-47 tags ('de-DE', 'en-US') for the Web Speech API.
  */
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useMemo } from 'react'
 import { Mic, MicOff, Loader2 } from 'lucide-react'
+
+/** Map short language codes to BCP-47 tags for Web Speech API */
+const LANGUAGE_MAP: Record<string, string> = {
+  de: 'de-DE',
+  en: 'en-US',
+  fr: 'fr-FR',
+  es: 'es-ES',
+  it: 'it-IT',
+  nl: 'nl-NL',
+}
 
 interface VoiceInputProps {
   onTranscript: (text: string) => void
@@ -18,11 +31,17 @@ interface VoiceInputProps {
 export default function VoiceInput({
   onTranscript,
   disabled = false,
-  language = 'de-DE',
+  language = 'de',
 }: VoiceInputProps) {
   const [isListening, setIsListening] = useState(false)
   const [transcript, setTranscript] = useState('')
   const recognitionRef = useRef<any>(null)
+
+  // Resolve short code ('de') to BCP-47 ('de-DE') for Web Speech API
+  const speechLang = useMemo(
+    () => LANGUAGE_MAP[language] || language,
+    [language],
+  )
 
   const startListening = useCallback(() => {
     // Check browser support
@@ -35,7 +54,7 @@ export default function VoiceInput({
     }
 
     const recognition = new SpeechRecognition()
-    recognition.lang = language
+    recognition.lang = speechLang
     recognition.continuous = false
     recognition.interimResults = true
 
@@ -69,7 +88,7 @@ export default function VoiceInput({
 
     recognitionRef.current = recognition
     recognition.start()
-  }, [language, onTranscript])
+  }, [speechLang, onTranscript])
 
   const stopListening = useCallback(() => {
     if (recognitionRef.current) {

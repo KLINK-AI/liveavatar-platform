@@ -75,12 +75,13 @@ class LiveAvatarClient:
         self._client: Optional[httpx.AsyncClient] = None
 
     async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client with auth headers.
+        """Get or create HTTP/1.1 client for X-API-KEY authenticated endpoints.
 
-        IMPORTANT: http1=True, http2=False is required because the LiveAvatar API
-        (behind Cloudflare) hangs on HTTP/2 POST requests from server environments.
-        Diagnosed 2026-03-16: httpx HTTP/2 causes ReadTimeout, requests (HTTP/1.1) works.
-        Timeout raised to 60s because the API routinely takes 20-30s to respond.
+        Used ONLY for /v1/sessions/token and /v1/avatars/* endpoints.
+        These endpoints work with HTTP/1.1 (and hang with HTTP/2 behind Cloudflare).
+
+        Bearer-token endpoints (start, stop, keep_alive) use separate HTTP/2 clients
+        — see start_session(), stop_session(), keep_alive() methods.
         """
         if self._client is None or self._client.is_closed:
             self._client = httpx.AsyncClient(
@@ -245,19 +246,7 @@ class LiveAvatarClient:
 
         logger.info("start_session HTTP — TIMING", elapsed_ms=round((t1 - t0) * 1000))
 
-        # === DIAGNOSTIC: Log the FULL raw response to understand API structure ===
-        import json as _json
-        logger.info(
-            "start_session FULL RAW RESPONSE",
-            raw_json=_json.dumps(data, default=str)[:2000],
-        )
-
         session_data = data.get("data", data)
-        logger.info(
-            "start_session parsed session_data",
-            session_data_keys=list(session_data.keys()) if isinstance(session_data, dict) else "not-dict",
-            session_data_preview=_json.dumps(session_data, default=str)[:1000],
-        )
 
         # Only raise on explicit error — code 100 is success per docs,
         # but we also accept any HTTP 2xx as success

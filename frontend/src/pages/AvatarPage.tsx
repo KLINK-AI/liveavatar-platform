@@ -340,6 +340,7 @@ export default function AvatarPage() {
                 <VoiceInput
                   onTranscript={sendMessage}
                   disabled={isLoading}
+                  language={selectedLanguage || tenantConfig?.default_language || 'de'}
                 />
               </div>
             )}

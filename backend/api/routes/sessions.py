@@ -365,9 +365,10 @@ async def keep_alive(
         await liveavatar.keep_alive(db_session.liveavatar_session_token)
         return {"status": "alive"}
     except Exception as e:
-        # Keep-alive failures are non-critical — WS heartbeat also keeps session alive
-        logger.warning("REST keep_alive failed (WS heartbeat still active)", error=str(e))
-        return {"status": "alive", "note": "REST keep-alive failed, WS heartbeat active"}
+        # Keep-alive 405 is expected (LiveAvatar API may have removed this endpoint).
+        # Non-critical — WS heartbeat (30s interval) keeps the session alive.
+        logger.debug("REST keep_alive failed (WS heartbeat active)", error=str(e))
+        return {"status": "alive", "note": "WS heartbeat active"}
     finally:
         await liveavatar.close()
 
@@ -513,15 +514,12 @@ async def _setup_session_services(
 
         logger.info("LiveKit STT agent started for session", session_id=session_id)
 
-    except ImportError as e:
-        logger.warning(
-            "LiveKit agent not available — STT via LiveKit disabled (text input still works)",
-            session_id=session_id,
-            error=str(e),
-        )
+    except ImportError:
+        # Expected: livekit rtc module not installed. STT works via browser Web Speech API instead.
+        logger.debug("LiveKit STT agent skipped (livekit rtc not installed) — browser Speech API active")
     except Exception as e:
-        logger.warning(
-            "LiveKit agent failed to start — STT disabled (text input still works)",
+        logger.info(
+            "LiveKit STT agent failed to start — browser Speech API still active",
             session_id=session_id,
             error=str(e),
         )
