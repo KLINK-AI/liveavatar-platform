@@ -5,6 +5,43 @@ Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.5.0] — 2026-03-16 — Kunden-Admin (tenant_admin) Dashboard
+
+**Status**: Pushed, Deployment pending (manuell via Coolify)
+**Commit**: `c9c03a9` (main)
+
+### Hinzugefügt
+- **Kunden-Admin Rolle (tenant_admin)** — Separater Login für Kunden, sehen nur ihren eigenen Tenant
+- **User Model** — E-Mail + bcrypt-Passwort + Rollen (superadmin, tenant_admin) mit Tenant-Zuordnung
+- **ChatLog Model** — Persistentes Logging aller Fragen/Antworten mit RAG-Quellen, Timing, Tokens
+- **JWT User Login** — `POST /api/v1/admin/auth/login` (E-Mail + Passwort) neben bestehendem Admin-Login
+- **User Management** — `POST /auth/users` (Superadmin: neue User anlegen), `GET /auth/users`
+- **Tenant Admin API Endpoints**:
+  - `GET /tenant-admin/chat-logs` — Alle Logs mit Pagination, Suche, Filter (RAG-only, Datum)
+  - `POST /tenant-admin/test-query` — Testfrage an LLM+RAG ohne Avatar
+  - `GET /tenant-admin/analytics/documents` — Dokumentnutzungs-Ranking
+  - `GET /tenant-admin/analytics/overview` — Anfragevolumen, Token-Verbrauch, RAG-Quote
+  - `GET/PUT /tenant-admin/system-prompt` — System Prompt anzeigen/bearbeiten
+- **TenantAdminDashboard.tsx** — Komplettes Frontend mit 4 Tabs:
+  - Test Query: Chat-Interface mit RAG-Quellen + Confidence + Timing
+  - Chat Logs: Durchsuchbar, filterbar, expandierbare Zeilen mit RAG-Ergebnissen
+  - Analytik: Dokumentnutzungs-Balkendiagramm, Statistik-Karten
+  - System Prompt: Editor mit Live-Speichern
+- **Route `/tenant-admin`** + Login-Formular + Link auf Landing Page
+- Chat Logging automatisch in `conversations.py` bei jeder Nachricht
+
+### Geändert
+- `auth.py` erweitert: `get_current_user()`, `require_role()`, `get_tenant_admin_tenant()`
+- `admin.py` erweitert: User-Login, User-CRUD, `/auth/me` Endpoint
+- `models/__init__.py`: User + ChatLog registriert
+- `main.py`: tenant_admin Router registriert unter `/api/v1/tenant-admin`
+- `api.ts`: `tenantAdminApi` Objekt mit allen neuen Endpoints
+
+### Referenz
+Inspiriert von buergerguide.botgenossen.cloud/admin/rag (Botgenossen Partner-System)
+
+---
+
 ## [0.4.0] — 2026-03-16 — HTTP/2 Fix & Stabilisierung
 
 **Status**: Produktiv deployed auf https://liveavatar.klink-io.cloud
