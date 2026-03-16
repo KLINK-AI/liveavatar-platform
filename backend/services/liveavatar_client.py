@@ -74,7 +74,13 @@ class LiveAvatarClient:
         self._client: Optional[httpx.AsyncClient] = None
 
     async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client with auth headers."""
+        """Get or create HTTP client with auth headers.
+
+        IMPORTANT: http1=True, http2=False is required because the LiveAvatar API
+        (behind Cloudflare) hangs on HTTP/2 POST requests from server environments.
+        Diagnosed 2026-03-16: httpx HTTP/2 causes ReadTimeout, requests (HTTP/1.1) works.
+        Timeout raised to 60s because the API routinely takes 20-30s to respond.
+        """
         if self._client is None or self._client.is_closed:
             self._client = httpx.AsyncClient(
                 base_url=self.base_url,
@@ -83,11 +89,13 @@ class LiveAvatarClient:
                     "Content-Type": "application/json",
                     "Accept": "application/json",
                 },
-                timeout=15.0,  # Reduced from 30s for faster failure detection
+                timeout=60.0,
+                http1=True,
+                http2=False,
             )
         return self._client
 
-    @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=0.5, min=0.5, max=3))
+    @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=1, max=5))
     async def create_session_token(
         self,
         avatar_id: str,
@@ -191,7 +199,9 @@ class LiveAvatarClient:
                 "Content-Type": "application/json",
                 "Accept": "application/json",
             },
-            timeout=15.0,
+            timeout=60.0,
+            http1=True,
+            http2=False,
         ) as client:
             response = await client.post("/v1/sessions/start")
             response.raise_for_status()
@@ -253,6 +263,8 @@ class LiveAvatarClient:
                 "Accept": "application/json",
             },
             timeout=30.0,
+            http1=True,
+            http2=False,
         ) as client:
             response = await client.post("/v1/sessions/stop")
             response.raise_for_status()
@@ -276,7 +288,9 @@ class LiveAvatarClient:
                 "Authorization": f"Bearer {session_token}",
                 "Accept": "application/json",
             },
-            timeout=15.0,
+            timeout=30.0,
+            http1=True,
+            http2=False,
         ) as client:
             response = await client.post("/v1/sessions/keep_alive")
             response.raise_for_status()
