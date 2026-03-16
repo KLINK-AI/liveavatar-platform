@@ -72,6 +72,41 @@ Die Zeit vom Klick auf "Gespräch starten" bis zur Avatar-Begrüßung wurde von 
 - Keep-alive URL korrigiert: `/v1/sessions/keep-alive` → `/v1/sessions/keep_alive`
 - Keep-alive Fehler graceful abfangen (WS Heartbeat bietet Redundanz)
 
+### Runde 4 — HTTP/2 Fix & Stabilisierung (Commits `f41e124` → `458afa3`, 2026-03-16)
+
+**Problem**: Avatar startete nicht mehr. `start_session` hing endlos — kein Video, keine Fehlermeldung, Frontend zeigte "Avatar wird geladen..." für immer.
+
+**Diagnose-Verlauf**:
+1. **Erste Vermutung**: Netzwerkproblem im Docker-Container → `/debug/network` Endpoint hinzugefügt (Commit `45a3f7c`)
+2. **Zweite Vermutung**: API-Timeout zu niedrig → HTTP/1.1 erzwungen, Timeout auf 60s (Commit `f41e124`)
+3. **Dritte Maßnahme**: Retry-Logik + besseres Logging (Commits `29632e1`, `c049590`)
+4. **Durchbruch**: `curl -v` aus dem Docker-Container gezeigt:
+   - `curl` nutzt HTTP/2 → Antwort in 6.6s ✅
+   - `httpx` mit HTTP/1.1 → hängt endlos ❌
+   - **Root Cause**: `/v1/sessions/start` ERFORDERT HTTP/2 hinter Cloudflare
+
+**Lösung** (Commit `458afa3`):
+- `start_session`, `stop_session`, `keep_alive` → `http2=True` (eigener AsyncClient pro Call)
+- `create_session_token` → bleibt bei `http1=True, http2=False` (funktioniert nur so)
+- `httpx[http2]` in requirements.txt (installiert `h2` Package)
+- Frontend: AbortController mit Timeouts (90s/30s) als Sicherheitsnetz
+
+**Ergebnisse (nach HTTP/2 Fix)**:
+| Schritt | Runde 3 | Runde 4 | Status |
+|---|---|---|---|
+| `create_session_token` (HTTP/1.1) | ~400ms | ~233ms | ✅ |
+| `start_session` (HTTP/2) | ~2750ms | ~3694ms | ✅ (vorher: Timeout!) |
+| WS TCP Connect | ~381ms | ~565ms | ✅ |
+| TTS Pre-Generation | 0ms (cache) | ~577ms (erste Session) | ✅ |
+| Setup Phase | ~381ms | ~566ms | ✅ |
+| Cached Audio Send | ~115ms | ~223ms | ✅ |
+| **Total** | **~3655ms** | **~5s** | ✅ |
+
+**Hinweis**: Die leicht höheren Zeiten in Runde 4 vs. Runde 3 erklären sich durch:
+- `start_session` HTTP/2 vs. HTTP/1.1 hat mehr TLS-Overhead beim Connection Setup
+- WS Connect Varianz (Netzwerk-abhängig)
+- Es war die erste Session nach Deploy (kein TTS-Cache)
+
 ## Verbleibende Engpässe
 
 | Engpass | Dauer | Kontrollierbar? |

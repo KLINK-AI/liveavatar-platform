@@ -1,5 +1,7 @@
 # LiveAvatar Platform — Technische Architektur
 
+**Aktualisiert**: 16. März 2026 (v0.4.0)
+
 ## Systemübersicht
 
 Die LiveAvatar Platform ist ein Multi-Tenant System für KI-gestützte Video-Avatar-Kommunikation. Jeder Tenant (Kunde) erhält einen eigenen Avatar mit individueller Wissensbasis, Begrüßung und Spracheinstellungen.
@@ -56,25 +58,28 @@ Benutzer-Frage
 
 ## Session-Lifecycle
 
-### Schritt 1: Session erstellen (synchron, ~3.2s)
+### Schritt 1: Session erstellen (synchron, ~4s)
 
 ```
 Frontend POST /api/v1/sessions/
-  → Backend: create_session_token() via LiveAvatar REST API (~400ms)
-  → [PARALLEL] TTS Greeting Pre-Generation startet als asyncio.Task (~500ms)
-  → Backend: start_session() via LiveAvatar REST API (~2800ms)
+  → Backend: create_session_token() via HTTP/1.1 (~233ms)
+  → [PARALLEL] TTS Greeting Pre-Generation startet als asyncio.Task (~577ms)
+  → Backend: start_session() via HTTP/2 (~3694ms)       ← MUSS HTTP/2 sein!
   → Response mit LiveKit URL + Token an Frontend
 ```
 
-### Schritt 2: Background Setup (async, ~500ms)
+> **HTTP-Protokoll-Hinweis**: `create_session_token` nutzt HTTP/1.1 (hängt mit HTTP/2),
+> `start_session` nutzt HTTP/2 (hängt mit HTTP/1.1). Siehe CURRENT-STATE.md für Details.
+
+### Schritt 2: Background Setup (async, ~800ms)
 
 ```
 Background Task:
-  → WebSocket TCP/TLS Connect (~380ms, non-blocking)
+  → WebSocket TCP/TLS Connect (~565ms, non-blocking)
   → TTS ist bereits gecacht (lief parallel mit start_session)
-  → Cached Audio an Avatar senden (~115ms)
+  → Cached Audio an Avatar senden (~223ms, 9 Chunks, ~214KB)
   → Avatar spricht Begrüßung
-  → LiveKit STT Agent starten (optional)
+  → LiveKit STT Agent starten (optional, aktuell deaktiviert)
 ```
 
 ### Schritt 3: Gespräch
@@ -121,10 +126,16 @@ Jeder Tenant hat:
 
 ## Key Design Decisions
 
-1. **Non-blocking WS Connect**: WebSocket wartet NICHT auf `session.state_updated=connected` Event. TCP/TLS Handshake reicht — Audio wird sofort nach Connect gesendet.
+1. **Gemischtes HTTP-Protokoll**: `create_session_token` (X-API-KEY Auth) nutzt HTTP/1.1 via Singleton-Client. `start_session`/`stop_session`/`keep_alive` (Bearer Token Auth) nutzen HTTP/2 via eigene temporäre Clients. Grund: Cloudflare behandelt die Endpoints unterschiedlich.
 
-2. **Parallel TTS Pre-Generation**: TTS Greeting-Audio wird WÄHREND des `start_session()` REST-Calls generiert (als asyncio.Task), nicht danach. So ist Audio gecacht bevor der Background Task überhaupt startet.
+2. **Non-blocking WS Connect**: WebSocket wartet NICHT auf `session.state_updated=connected` Event. TCP/TLS Handshake reicht — Audio wird sofort nach Connect gesendet.
 
-3. **Turbo Model für Greetings**: `eleven_turbo_v2_5` statt `eleven_multilingual_v2` für schnellere Greeting-Generierung (~500ms statt ~1800ms).
+3. **Parallel TTS Pre-Generation**: TTS Greeting-Audio wird WÄHREND des `start_session()` REST-Calls generiert (als asyncio.Task), nicht danach. So ist Audio gecacht bevor der Background Task überhaupt startet.
 
-4. **ResizeObserver für Chat-Höhe**: Chat-Container synchronisiert seine Höhe pixelgenau mit dem Avatar-Wrapper via ResizeObserver, damit beides gleich hoch ist.
+4. **Turbo Model für Greetings**: `eleven_turbo_v2_5` statt `eleven_multilingual_v2` für schnellere Greeting-Generierung (~500ms statt ~1800ms).
+
+5. **ResizeObserver für Chat-Höhe**: Chat-Container synchronisiert seine Höhe pixelgenau mit dem Avatar-Wrapper via ResizeObserver, damit beides gleich hoch ist.
+
+6. **Frontend AbortController**: Alle API-Calls haben Timeouts (Session-Create: 90s, Rest: 30s) um endlose Wartezeiten zu verhindern. Bei Timeout erscheint eine deutsche Fehlermeldung.
+
+7. **Retry mit Exponential Backoff**: `tenacity` Decorator für API-Calls (max 2 Versuche, 2-8s Wartezeit). Fängt intermittierende 500er Fehler ab.
