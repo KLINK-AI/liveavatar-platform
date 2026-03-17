@@ -38,6 +38,19 @@ async function apiRequest(endpoint: string, options: RequestOptions = {}) {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Request failed' }))
+
+      // Auto-redirect to login on expired/invalid token
+      if (response.status === 401 && token) {
+        localStorage.removeItem('admin_token')
+        localStorage.removeItem('tenant_admin_token')
+        // Redirect to appropriate login page
+        if (window.location.pathname.startsWith('/tenant-admin')) {
+          window.location.href = '/tenant-admin/login'
+        } else if (window.location.pathname.startsWith('/admin')) {
+          window.location.href = '/admin'
+        }
+      }
+
       throw new Error(error.detail || `HTTP ${response.status}`)
     }
 
