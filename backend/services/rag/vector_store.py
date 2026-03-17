@@ -6,6 +6,9 @@ via separate Qdrant collections.
 """
 
 from typing import Optional
+from functools import lru_cache
+import hashlib
+import time
 import structlog
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import (
@@ -24,18 +27,26 @@ from config import get_settings
 logger = structlog.get_logger()
 settings = get_settings()
 
+# ── Embedding Cache ──
+# Caches query embeddings to avoid redundant OpenAI API calls.
+# Typical query embeddings are ~6KB each; 500 entries ≈ 3MB RAM.
+_EMBEDDING_CACHE_MAX = 500
+
 
 class VectorStore:
-    """Qdrant-based vector store with embedding generation."""
+    """Qdrant-based vector store with embedding generation and caching."""
 
     def __init__(self):
         self.client = AsyncQdrantClient(
             url=settings.qdrant_url,
             api_key=settings.qdrant_api_key or None,
+            timeout=10,  # 10s timeout prevents hanging
         )
         self.embedding_client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
         self.embedding_model = settings.embedding_model
         self.vector_size = 1536  # text-embedding-3-small
+        # In-memory embedding cache: hash(text) → (embedding, timestamp)
+        self._embed_cache: dict[str, tuple[list[float], float]] = {}
 
     async def ensure_collection(self, collection_name: str):
         """Create a Qdrant collection if it doesn't exist."""
@@ -52,13 +63,42 @@ class VectorStore:
             )
             logger.info("Created Qdrant collection", collection=collection_name)
 
+    def _cache_key(self, text: str) -> str:
+        """Generate a cache key for embedding lookup."""
+        return hashlib.md5(f"{self.embedding_model}:{text}".encode()).hexdigest()
+
+    def _evict_cache(self):
+        """Evict oldest entries if cache exceeds max size."""
+        if len(self._embed_cache) > _EMBEDDING_CACHE_MAX:
+            # Remove oldest 20% by timestamp
+            sorted_keys = sorted(self._embed_cache, key=lambda k: self._embed_cache[k][1])
+            for k in sorted_keys[:len(sorted_keys) // 5]:
+                del self._embed_cache[k]
+
     async def embed_text(self, text: str) -> list[float]:
-        """Generate an embedding vector for a text string."""
+        """Generate an embedding vector — with in-memory cache for queries."""
+        cache_key = self._cache_key(text)
+        cached = self._embed_cache.get(cache_key)
+        if cached:
+            logger.debug("Embedding cache HIT", text_len=len(text))
+            return cached[0]
+
+        t0 = time.monotonic()
         response = await self.embedding_client.embeddings.create(
             model=self.embedding_model,
             input=text,
         )
-        return response.data[0].embedding
+        embedding = response.data[0].embedding
+        elapsed_ms = round((time.monotonic() - t0) * 1000)
+
+        # Cache the result
+        self._embed_cache[cache_key] = (embedding, time.time())
+        self._evict_cache()
+
+        logger.info("Embedding generated", model=self.embedding_model,
+                     text_len=len(text), elapsed_ms=elapsed_ms,
+                     cache_size=len(self._embed_cache))
+        return embedding
 
     async def embed_texts(self, texts: list[str]) -> list[list[float]]:
         """Generate embeddings for multiple texts in one call."""

@@ -179,37 +179,49 @@ class ConversationEngine:
         memory = self._get_memory(session_id)
 
         # ── Step 1: RAG Retrieval (with timing) ──
+        # Parallel search across ALL knowledge bases using asyncio.gather().
+        # The embedding is cached after the first call, so parallel KB searches
+        # re-use the same embedding vector (cache hit) — no extra API cost.
         t_rag_start = time.monotonic()
         kbs = knowledge_bases if knowledge_bases is not None else getattr(tenant, 'knowledge_bases', [])
         rag_context = ""
         sources = []
         if kbs:
-            # Search ALL knowledge bases — use build_context_with_sources()
-            # to get BOTH context and sources in a SINGLE embedding call
-            # (previously called build_context + retrieve separately = 2x embedding cost)
-            for kb in kbs:
-                logger.info("Trying RAG retrieval",
-                            kb_name=kb.name,
-                            collection=kb.qdrant_collection)
+            async def _search_kb(kb):
+                """Search a single KB, return (context, sources, kb_name) or empty."""
                 try:
-                    rag_context, sources = await self.rag.build_context_with_sources(
+                    ctx, srcs = await self.rag.build_context_with_sources(
                         collection_name=kb.qdrant_collection,
                         query=user_message,
                         top_k=5,
                         max_context_length=3000,
                     )
-                    if rag_context:
-                        logger.info("RAG context found",
-                                    kb_name=kb.name,
-                                    context_length=len(rag_context),
-                                    sources_count=len(sources))
-                        break  # Use the first KB that returns context
+                    return ctx, srcs, kb.name
                 except Exception as e:
                     logger.warning("RAG retrieval failed for KB",
                                    kb_name=kb.name,
                                    collection=kb.qdrant_collection,
                                    error=str(e))
-                    continue
+                    return "", [], kb.name
+
+            if len(kbs) == 1:
+                # Single KB — direct call (no gather overhead)
+                rag_context, sources, _ = await _search_kb(kbs[0])
+            else:
+                # Multiple KBs — search in parallel
+                logger.info("Parallel RAG search", kb_count=len(kbs),
+                            kbs=[kb.name for kb in kbs])
+                results = await asyncio.gather(*[_search_kb(kb) for kb in kbs])
+                # Pick the first result with context (prefer most relevant)
+                for ctx, srcs, kb_name in results:
+                    if ctx:
+                        rag_context = ctx
+                        sources = srcs
+                        logger.info("RAG context found (parallel)",
+                                    kb_name=kb_name,
+                                    context_length=len(ctx),
+                                    sources_count=len(srcs))
+                        break
         t_rag_end = time.monotonic()
         duration_rag_ms = round((t_rag_end - t_rag_start) * 1000)
 
@@ -298,18 +310,24 @@ class ConversationEngine:
         """
         memory = self._get_memory(session_id)
 
-        # RAG Retrieval — search all KBs until one returns context
+        # RAG Retrieval — parallel search across all KBs
         rag_context = ""
         kbs = getattr(tenant, 'knowledge_bases', [])
-        for kb in kbs:
-            try:
-                rag_context = await self.rag.build_context(
-                    kb.qdrant_collection, user_message
-                )
-                if rag_context:
-                    break
-            except Exception:
-                continue
+        if kbs:
+            async def _search_kb_stream(kb):
+                try:
+                    return await self.rag.build_context(kb.qdrant_collection, user_message), kb.name
+                except Exception:
+                    return "", kb.name
+
+            if len(kbs) == 1:
+                rag_context, _ = await _search_kb_stream(kbs[0])
+            else:
+                results = await asyncio.gather(*[_search_kb_stream(kb) for kb in kbs])
+                for ctx, _ in results:
+                    if ctx:
+                        rag_context = ctx
+                        break
 
         # Build prompt (with session language)
         session_language = self.get_session_language(session_id)

@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     ollama_base_url: str = "http://localhost:11434"
     default_llm_provider: str = "openai"
-    default_llm_model: str = "gpt-4o"
+    default_llm_model: str = "gpt-4o-mini"
 
     # Vector DB
     qdrant_url: str = "http://localhost:6333"

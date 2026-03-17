@@ -46,7 +46,7 @@ class Tenant(Base):
 
     # LLM Config
     llm_provider: Mapped[str] = mapped_column(String(50), default="openai")
-    llm_model: Mapped[str] = mapped_column(String(100), default="gpt-4o")
+    llm_model: Mapped[str] = mapped_column(String(100), default="gpt-4o-mini")
     llm_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     system_prompt: Mapped[str] = mapped_column(
         Text,
