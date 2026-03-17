@@ -10,7 +10,7 @@ This is the main entry point for RAG operations:
 from typing import Optional
 import structlog
 
-from services.rag.vector_store import VectorStore
+from services.rag.vector_store import VectorStore, get_vector_store
 from services.rag.document_ingester import DocumentIngester
 from services.rag.web_crawler import WebCrawler
 from services.rag.api_connector import APIConnector
@@ -25,7 +25,7 @@ class RAGPipeline:
     """
 
     def __init__(self):
-        self.vector_store = VectorStore()
+        self.vector_store = get_vector_store()
         self.ingester = DocumentIngester()
         self.crawler = WebCrawler()
         self.api_connector = APIConnector()
@@ -253,6 +253,6 @@ class RAGPipeline:
         await self.vector_store.delete_collection(collection_name)
 
     async def close(self):
-        await self.vector_store.close()
+        # NOTE: Do NOT close vector_store — it's a shared singleton.
         await self.crawler.close()
         await self.api_connector.close()

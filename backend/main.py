@@ -20,6 +20,17 @@ async def lifespan(app: FastAPI):
     logger.info("Starting LiveAvatar Platform", env=settings.app_env)
     await init_db()
     logger.info("Database initialized")
+
+    # Pre-warm OpenAI embedding connection to avoid cold-start latency (~5s)
+    # Uses the singleton so the warmed connection is reused by all RAG pipelines.
+    try:
+        from services.rag.vector_store import get_vector_store
+        vs = get_vector_store()
+        await vs.warmup()
+        logger.info("OpenAI embedding connection pre-warmed")
+    except Exception as e:
+        logger.warning("Embedding warmup failed (non-critical)", error=str(e))
+
     yield
     logger.info("Shutting down LiveAvatar Platform")
 
@@ -65,5 +76,3 @@ async def root():
         "docs": "/docs",
         "health": "/health",
     }
-
-

@@ -32,6 +32,17 @@ settings = get_settings()
 # Typical query embeddings are ~6KB each; 500 entries ≈ 3MB RAM.
 _EMBEDDING_CACHE_MAX = 500
 
+# ── Singleton ──
+_vector_store_instance: "VectorStore | None" = None
+
+
+def get_vector_store() -> "VectorStore":
+    """Return the shared VectorStore singleton (reuses OpenAI + Qdrant clients)."""
+    global _vector_store_instance
+    if _vector_store_instance is None:
+        _vector_store_instance = VectorStore()
+    return _vector_store_instance
+
 
 class VectorStore:
     """Qdrant-based vector store with embedding generation and caching."""
@@ -151,6 +162,20 @@ class VectorStore:
                      collection=collection_name, count=len(points))
         return len(points)
 
+    async def warmup(self):
+        """Pre-warm the OpenAI embedding HTTP connection to avoid cold-start latency."""
+        try:
+            t0 = time.monotonic()
+            await self.embedding_client.embeddings.create(
+                model=self.embedding_model,
+                input="warmup",
+            )
+            elapsed_ms = round((time.monotonic() - t0) * 1000)
+            logger.info("Embedding client warmed up", elapsed_ms=elapsed_ms,
+                        model=self.embedding_model)
+        except Exception as e:
+            logger.warning("Embedding warmup failed (non-critical)", error=str(e))
+
     async def search(
         self,
         collection_name: str,
@@ -172,7 +197,9 @@ class VectorStore:
         Returns:
             List of matching chunks with text, score, and metadata
         """
+        t_embed_start = time.monotonic()
         query_vector = await self.embed_text(query)
+        t_embed_end = time.monotonic()
 
         search_filter = None
         if document_id:
@@ -185,6 +212,7 @@ class VectorStore:
                 ]
             )
 
+        t_qdrant_start = time.monotonic()
         results = await self.client.search(
             collection_name=collection_name,
             query_vector=query_vector,
@@ -192,6 +220,14 @@ class VectorStore:
             score_threshold=score_threshold,
             query_filter=search_filter,
         )
+        t_qdrant_end = time.monotonic()
+
+        embed_ms = round((t_embed_end - t_embed_start) * 1000)
+        qdrant_ms = round((t_qdrant_end - t_qdrant_start) * 1000)
+        logger.info("Vector search complete",
+                     collection=collection_name,
+                     embed_ms=embed_ms, qdrant_ms=qdrant_ms,
+                     results=len(results))
 
         return [
             {
