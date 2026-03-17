@@ -30,6 +30,7 @@ from config import get_settings
 from database import get_db
 from models.tenant import Tenant
 from models.chat_log import ChatLog
+from models.knowledge_base import KnowledgeBase
 from models.user import User, UserRole
 from api.middleware.auth import get_current_user, get_tenant_admin_tenant
 
@@ -190,6 +191,14 @@ async def test_query(
     try:
         engine = _get_engine()
         t_start = time.monotonic()
+
+        # Ensure knowledge_bases are loaded (selectin may not fire across dependencies)
+        if not hasattr(tenant, '_kb_loaded'):
+            kb_result = await db.execute(
+                select(KnowledgeBase).where(KnowledgeBase.tenant_id == tenant.id)
+            )
+            tenant.knowledge_bases = kb_result.scalars().all()
+            tenant._kb_loaded = True
 
         # Use a synthetic session ID for test queries
         test_session_id = f"test-{tenant.slug}-{int(time.time())}"
