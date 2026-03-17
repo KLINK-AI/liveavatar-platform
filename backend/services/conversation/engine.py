@@ -278,13 +278,18 @@ class ConversationEngine:
         """
         memory = self._get_memory(session_id)
 
-        # RAG Retrieval
+        # RAG Retrieval — search all KBs until one returns context
         rag_context = ""
-        if tenant.knowledge_bases:
-            kb = tenant.knowledge_bases[0]
-            rag_context = await self.rag.build_context(
-                kb.qdrant_collection, user_message
-            )
+        kbs = getattr(tenant, 'knowledge_bases', [])
+        for kb in kbs:
+            try:
+                rag_context = await self.rag.build_context(
+                    kb.qdrant_collection, user_message
+                )
+                if rag_context:
+                    break
+            except Exception:
+                continue
 
         # Build prompt (with session language)
         session_language = self.get_session_language(session_id)
