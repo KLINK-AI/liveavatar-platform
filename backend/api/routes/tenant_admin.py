@@ -20,10 +20,13 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select, func, desc, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 import time
+import csv
+import io
 import structlog
 
 from config import get_settings
@@ -170,6 +173,78 @@ async def get_chat_log_detail(
         "session_id": log.session_id,
         "created_at": log.created_at.isoformat(),
     }
+
+
+# --- CSV Export ---
+
+@router.get("/chat-logs/export/csv")
+async def export_chat_logs_csv(
+    tenant: Tenant = Depends(get_tenant_admin_tenant),
+    db: AsyncSession = Depends(get_db),
+    search: Optional[str] = Query(None),
+    rag_only: Optional[bool] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+):
+    """Export all chat logs as CSV file (filtered by same params as list endpoint)."""
+    query = select(ChatLog).where(ChatLog.tenant_id == tenant.id)
+
+    if search:
+        query = query.where(ChatLog.user_message.ilike(f"%{search}%"))
+    if rag_only is True:
+        query = query.where(ChatLog.rag_used == True)
+    if date_from:
+        try:
+            dt_from = datetime.fromisoformat(date_from)
+            query = query.where(ChatLog.created_at >= dt_from)
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            dt_to = datetime.fromisoformat(date_to) + timedelta(days=1)
+            query = query.where(ChatLog.created_at < dt_to)
+        except ValueError:
+            pass
+
+    query = query.order_by(desc(ChatLog.created_at))
+    result = await db.execute(query)
+    logs = result.scalars().all()
+
+    # Build CSV
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=";")
+    writer.writerow([
+        "Datum", "Benutzeranfrage", "Bot-Antwort", "RAG", "Quellen",
+        "Dauer (ms)", "RAG (ms)", "LLM (ms)", "TTS (ms)",
+        "Tokens Prompt", "Tokens Completion", "LLM-Modell", "Sprache",
+    ])
+    for log in logs:
+        sources_str = ", ".join(
+            s.get("source", "") for s in (log.rag_sources or [])
+        )
+        writer.writerow([
+            log.created_at.strftime("%Y-%m-%d %H:%M:%S") if log.created_at else "",
+            log.user_message or "",
+            log.bot_response or "",
+            "Ja" if log.rag_used else "Nein",
+            sources_str,
+            log.duration_total_ms or "",
+            log.duration_rag_ms or "",
+            log.duration_llm_ms or "",
+            log.duration_tts_ms or "",
+            log.tokens_prompt or "",
+            log.tokens_completion or "",
+            log.llm_model or "",
+            log.language or "",
+        ])
+
+    output.seek(0)
+    filename = f"chat-logs_{tenant.slug}_{datetime.utcnow().strftime('%Y%m%d')}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 # --- Test Query ---

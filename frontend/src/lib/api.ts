@@ -179,6 +179,12 @@ export const knowledgeApi = {
       token,
     }),
 
+  deleteKb: (kbId: string, token: string) =>
+    apiRequest(`/knowledge/${kbId}`, {
+      method: 'DELETE',
+      token,
+    }),
+
   search: (kbId: string, query: string, token: string) =>
     apiRequest(`/knowledge/${kbId}/search`, {
       method: 'POST',
@@ -240,6 +246,34 @@ export const tenantAdminApi = {
       token,
       body: { message, language },
     }),
+
+  // CSV Export
+  exportChatLogsCsv: (token: string, params?: {
+    search?: string; rag_only?: boolean; date_from?: string; date_to?: string;
+  }) => {
+    const searchParams = new URLSearchParams()
+    if (params?.search) searchParams.set('search', params.search)
+    if (params?.rag_only) searchParams.set('rag_only', 'true')
+    if (params?.date_from) searchParams.set('date_from', params.date_from)
+    if (params?.date_to) searchParams.set('date_to', params.date_to)
+    const qs = searchParams.toString()
+    // Direct download — not JSON
+    return fetch(`${API_BASE}/tenant-admin/chat-logs/export/csv${qs ? '?' + qs : ''}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    }).then(res => {
+      if (!res.ok) throw new Error('Export fehlgeschlagen')
+      return res.blob()
+    }).then(blob => {
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `chat-logs-export.csv`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    })
+  },
 
   // Analytics
   getDocumentAnalytics: (token: string, days?: number) =>

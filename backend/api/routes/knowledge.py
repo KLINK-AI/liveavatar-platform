@@ -334,6 +334,38 @@ async def delete_document(
     return {"status": "deleted", "document_id": doc_id}
 
 
+@router.delete("/{kb_id}")
+async def delete_knowledge_base(
+    kb_id: str,
+    tenant: Tenant = Depends(get_current_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a knowledge base and all its documents + Qdrant collection."""
+    kb = await _get_kb(kb_id, tenant.id, db)
+
+    # Delete entire Qdrant collection
+    rag = RAGPipeline()
+    try:
+        await rag.delete_collection(kb.qdrant_collection)
+    except Exception as e:
+        logger.warning("Failed to delete Qdrant collection", collection=kb.qdrant_collection, error=str(e))
+    finally:
+        await rag.close()
+
+    # Delete all documents from DB
+    doc_result = await db.execute(
+        select(Document).where(Document.knowledge_base_id == kb.id)
+    )
+    for doc in doc_result.scalars().all():
+        await db.delete(doc)
+
+    # Delete KB record
+    await db.delete(kb)
+
+    logger.info("Knowledge base deleted", kb_id=kb_id, tenant=tenant.slug)
+    return {"status": "deleted", "kb_id": kb_id, "name": kb.name}
+
+
 @router.post("/{kb_id}/search")
 async def search_knowledge_base(
     kb_id: str,

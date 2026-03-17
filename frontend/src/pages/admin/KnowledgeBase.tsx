@@ -175,16 +175,34 @@ export default function KnowledgeBasePage() {
 
               <div className="space-y-1">
                 {kbs.map((kb) => (
-                  <button
-                    key={kb.id}
-                    onClick={() => { setSelectedKb(kb); setSearchResults([]) }}
-                    className={`w-full text-left px-3 py-2 rounded-lg text-sm ${
-                      selectedKb?.id === kb.id ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50'
-                    }`}
-                  >
-                    {kb.name}
-                    <span className="text-xs text-gray-400 ml-2">{kb.document_count} Docs</span>
-                  </button>
+                  <div key={kb.id} className="flex items-center gap-1">
+                    <button
+                      onClick={() => { setSelectedKb(kb); setSearchResults([]) }}
+                      className={`flex-1 text-left px-3 py-2 rounded-lg text-sm ${
+                        selectedKb?.id === kb.id ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50'
+                      }`}
+                    >
+                      {kb.name}
+                      <span className="text-xs text-gray-400 ml-2">{kb.document_count} Docs</span>
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!confirm(`Datenbank "${kb.name}" und alle Dokumente wirklich löschen?`)) return
+                        try {
+                          await knowledgeApi.deleteKb(kb.id, token)
+                          const updated = await knowledgeApi.list(token)
+                          setKbs(updated)
+                          if (selectedKb?.id === kb.id) setSelectedKb(updated[0] || null)
+                        } catch (err: any) {
+                          alert('Löschen fehlgeschlagen: ' + (err.message || 'Fehler'))
+                        }
+                      }}
+                      className="p-1.5 text-gray-300 hover:text-red-600 rounded hover:bg-red-50"
+                      title="Datenbank löschen"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 ))}
                 {kbs.length === 0 && (
                   <p className="text-sm text-gray-400 px-3 py-2">

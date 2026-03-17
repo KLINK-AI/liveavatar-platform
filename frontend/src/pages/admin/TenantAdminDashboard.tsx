@@ -17,11 +17,12 @@ import { useNavigate } from 'react-router-dom'
 import {
   MessageSquare, FileText, BarChart3, LogOut,
   Send, Loader2, Search, ChevronDown, ChevronRight,
-  Clock, Database, Zap, AlertCircle
+  Clock, Database, Zap, AlertCircle, Upload, Trash2,
+  Globe, Download, FolderOpen, Plus
 } from 'lucide-react'
-import { tenantAdminApi } from '../../lib/api'
+import { tenantAdminApi, knowledgeApi } from '../../lib/api'
 
-type Tab = 'test-query' | 'chat-logs' | 'analytics'
+type Tab = 'test-query' | 'knowledge' | 'chat-logs' | 'analytics'
 
 // ─── Login Form ───
 function LoginForm({ onLogin }: { onLogin: (token: string, user: any) => void }) {
@@ -222,6 +223,218 @@ function TestQueryTab({ token }: { token: string }) {
   )
 }
 
+// ─── Knowledge Base Tab (Kunden-Verwaltung) ───
+function KnowledgeTab({ token }: { token: string }) {
+  const [kbs, setKbs] = useState<any[]>([])
+  const [selectedKb, setSelectedKb] = useState<any>(null)
+  const [documents, setDocuments] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [uploading, setUploading] = useState(false)
+  const [urlInput, setUrlInput] = useState('')
+  const [crawlSite, setCrawlSite] = useState(false)
+  const [indexingUrl, setIndexingUrl] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    knowledgeApi.list(token).then(data => {
+      setKbs(data)
+      if (data.length > 0) setSelectedKb(data[0])
+    }).catch(console.error).finally(() => setLoading(false))
+  }, [token])
+
+  useEffect(() => {
+    if (selectedKb) {
+      knowledgeApi.listDocuments(selectedKb.id, token).then(setDocuments).catch(console.error)
+    }
+  }, [selectedKb, token])
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !selectedKb) return
+    setUploading(true)
+    try {
+      await knowledgeApi.uploadDocument(selectedKb.id, file, token)
+      const docs = await knowledgeApi.listDocuments(selectedKb.id, token)
+      setDocuments(docs)
+      const updatedKbs = await knowledgeApi.list(token)
+      setKbs(updatedKbs)
+    } catch (err: any) {
+      alert('Upload fehlgeschlagen: ' + (err.message || 'Unbekannter Fehler'))
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  const handleIndexUrl = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!urlInput.trim() || !selectedKb) return
+    setIndexingUrl(true)
+    try {
+      await knowledgeApi.indexUrl(selectedKb.id, urlInput.trim(), crawlSite, token)
+      setUrlInput('')
+      const docs = await knowledgeApi.listDocuments(selectedKb.id, token)
+      setDocuments(docs)
+      const updatedKbs = await knowledgeApi.list(token)
+      setKbs(updatedKbs)
+    } catch (err: any) {
+      alert('URL-Indexierung fehlgeschlagen: ' + (err.message || 'Unbekannter Fehler'))
+    } finally {
+      setIndexingUrl(false)
+    }
+  }
+
+  const handleDeleteDoc = async (docId: string) => {
+    if (!selectedKb || !confirm('Dokument wirklich löschen?')) return
+    try {
+      await knowledgeApi.deleteDocument(selectedKb.id, docId, token)
+      setDocuments(docs => docs.filter(d => d.id !== docId))
+      const updatedKbs = await knowledgeApi.list(token)
+      setKbs(updatedKbs)
+    } catch (err: any) {
+      alert('Löschen fehlgeschlagen: ' + (err.message || 'Unbekannter Fehler'))
+    }
+  }
+
+  if (loading) return <div className="text-center py-12"><Loader2 className="w-8 h-8 animate-spin mx-auto text-blue-500" /></div>
+
+  if (kbs.length === 0) {
+    return (
+      <div className="text-center py-12 text-gray-500 bg-white rounded-xl border border-gray-200">
+        <FolderOpen className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+        <p>Noch keine Wissensdatenbank vorhanden.</p>
+        <p className="text-sm mt-1">Bitte kontaktieren Sie den Administrator.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* KB Selector */}
+      {kbs.length > 1 && (
+        <div className="flex gap-2">
+          {kbs.map(kb => (
+            <button
+              key={kb.id}
+              onClick={() => setSelectedKb(kb)}
+              className={`px-4 py-2 rounded-lg text-sm ${
+                selectedKb?.id === kb.id
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              {kb.name} ({kb.document_count} Docs)
+            </button>
+          ))}
+        </div>
+      )}
+
+      {selectedKb && (
+        <>
+          {/* Upload Section */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h3 className="text-lg font-semibold mb-4">Dokumente verwalten — {selectedKb.name}</h3>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* File Upload */}
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                  <Upload className="w-4 h-4" /> Datei hochladen
+                </h4>
+                <p className="text-xs text-gray-500 mb-3">PDF, DOCX, TXT oder CSV</p>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.docx,.txt,.csv"
+                  onChange={handleUpload}
+                  disabled={uploading}
+                  className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 disabled:opacity-50"
+                />
+                {uploading && (
+                  <div className="flex items-center gap-2 mt-2 text-sm text-blue-600">
+                    <Loader2 className="w-4 h-4 animate-spin" /> Wird hochgeladen und indexiert...
+                  </div>
+                )}
+              </div>
+
+              {/* URL Indexing */}
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                  <Globe className="w-4 h-4" /> URL indexieren
+                </h4>
+                <form onSubmit={handleIndexUrl} className="space-y-2">
+                  <input
+                    type="url"
+                    placeholder="https://example.com/page"
+                    value={urlInput}
+                    onChange={e => setUrlInput(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 focus:outline-none text-sm"
+                  />
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-2 text-xs text-gray-500">
+                      <input type="checkbox" checked={crawlSite} onChange={e => setCrawlSite(e.target.checked)} className="rounded" />
+                      Gesamte Website crawlen
+                    </label>
+                    <button
+                      type="submit"
+                      disabled={indexingUrl || !urlInput.trim()}
+                      className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1"
+                    >
+                      {indexingUrl ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+                      Indexieren
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+
+          {/* Document List */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+            <div className="p-4 border-b border-gray-100">
+              <h3 className="text-sm font-medium text-gray-700">
+                Dokumente ({documents.length})
+              </h3>
+            </div>
+            {documents.length === 0 ? (
+              <div className="p-8 text-center text-gray-400 text-sm">
+                Noch keine Dokumente. Laden Sie ein Dokument hoch oder indexieren Sie eine URL.
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {documents.map((doc: any) => (
+                  <div key={doc.id} className="p-4 flex items-center justify-between hover:bg-gray-50">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <FileText className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">{doc.name}</p>
+                        <div className="flex gap-3 text-xs text-gray-500">
+                          <span className="uppercase">{doc.type}</span>
+                          <span>{doc.chunks ?? 0} Chunks</span>
+                          <span className={doc.status === 'indexed' ? 'text-green-600' : doc.status === 'error' ? 'text-red-600' : 'text-yellow-600'}>
+                            {doc.status}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteDoc(doc.id)}
+                      className="p-2 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50"
+                      title="Dokument löschen"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ─── Chat Logs Tab ───
 function ChatLogsTab({ token }: { token: string }) {
   const [logs, setLogs] = useState<any>(null)
@@ -281,6 +494,14 @@ function ChatLogsTab({ token }: { token: string }) {
           </label>
           <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
             Suchen
+          </button>
+          <button
+            onClick={() => tenantAdminApi.exportChatLogsCsv(token, { search: search || undefined, rag_only: ragOnly || undefined })}
+            className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200 flex items-center gap-1"
+            title="Als CSV exportieren"
+          >
+            <Download className="w-4 h-4" />
+            CSV
           </button>
         </form>
       </div>
@@ -564,6 +785,7 @@ export default function TenantAdminDashboard() {
 
   const tabs: { id: Tab; label: string; icon: any }[] = [
     { id: 'test-query', label: 'Test Query', icon: MessageSquare },
+    { id: 'knowledge', label: 'Wissensbasis', icon: Database },
     { id: 'chat-logs', label: 'Chat Logs', icon: FileText },
     { id: 'analytics', label: 'Analytik', icon: BarChart3 },
   ]
@@ -612,6 +834,7 @@ export default function TenantAdminDashboard() {
       {/* Content */}
       <main className="max-w-6xl mx-auto px-4 py-6">
         {activeTab === 'test-query' && <TestQueryTab token={token} />}
+        {activeTab === 'knowledge' && <KnowledgeTab token={token} />}
         {activeTab === 'chat-logs' && <ChatLogsTab token={token} />}
         {activeTab === 'analytics' && <AnalyticsTab token={token} />}
       </main>

@@ -666,6 +666,20 @@ export default function TenantManager() {
                   >
                     <Database className="w-4 h-4" /> Wissensbasis
                   </Link>
+                  <button
+                    onClick={() => {
+                      // Superadmin jumps into tenant-admin view by storing admin_token as tenant_admin_token
+                      const adminToken = localStorage.getItem('admin_token')
+                      if (adminToken) {
+                        localStorage.setItem('tenant_admin_token', adminToken)
+                        window.open('/tenant-admin', '_blank')
+                      }
+                    }}
+                    className="flex items-center gap-1 px-3 py-2 text-sm text-purple-600 hover:bg-purple-50 rounded-lg border border-purple-200"
+                    title="Als Kunde den Admin-Bereich öffnen"
+                  >
+                    Kunden-Admin
+                  </button>
                   <Link
                     to={`/avatar/${tenant.slug}`}
                     className="flex items-center gap-1 px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-200"
