@@ -205,22 +205,9 @@ async def test_query(
 
         t_total = round((time.monotonic() - t_start) * 1000)
 
-        # Log the test query too
-        chat_log = ChatLog(
-            tenant_id=tenant.id,
-            session_id=test_session_id,
-            user_message=request.message,
-            bot_response=result["response"],
-            rag_used=result.get("context_used", False),
-            rag_sources=result.get("sources"),
-            duration_total_ms=t_total,
-            tokens_prompt=result.get("usage", {}).get("prompt_tokens"),
-            tokens_completion=result.get("usage", {}).get("completion_tokens"),
-            llm_provider=result.get("llm_provider"),
-            llm_model=result.get("llm_model"),
-            language=request.language,
-        )
-        db.add(chat_log)
+        # Note: Test queries are NOT logged to chat_logs because
+        # ChatLog.session_id has a FK constraint to avatar_sessions,
+        # and test queries don't have a real avatar session.
 
         return {
             "response": result["response"],
