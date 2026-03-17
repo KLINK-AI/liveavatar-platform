@@ -231,19 +231,6 @@ async def test_query(
             "llm_provider": result.get("llm_provider"),
             "duration_total_ms": t_total,
             "tokens": result.get("usage"),
-            "_debug": {
-                "tenant_id": str(tenant.id),
-                "tenant_slug": tenant.slug,
-                "kb_count": len(knowledge_bases),
-                "kb_details": [
-                    {
-                        "name": kb.name,
-                        "qdrant_collection": kb.qdrant_collection,
-                        "id": str(kb.id),
-                    }
-                    for kb in knowledge_bases
-                ],
-            },
         }
 
     except HTTPException:
