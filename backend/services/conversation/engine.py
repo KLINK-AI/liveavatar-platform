@@ -153,6 +153,7 @@ class ConversationEngine:
         session_id: str,
         user_message: str,
         send_to_avatar: bool = True,
+        knowledge_bases: list | None = None,
     ) -> dict:
         """
         Process a user message through the full pipeline.
@@ -164,6 +165,7 @@ class ConversationEngine:
             session_id: Internal session ID
             user_message: User's question/input
             send_to_avatar: Whether to send response to avatar via audio
+            knowledge_bases: Optional explicit list of KBs (bypasses tenant.knowledge_bases)
 
         Returns:
             dict with 'response', 'context_used', 'sources', etc.
@@ -176,10 +178,12 @@ class ConversationEngine:
         memory = self._get_memory(session_id)
 
         # Step 1: RAG Retrieval
+        # Use explicitly passed knowledge_bases, or fall back to tenant relationship
+        kbs = knowledge_bases if knowledge_bases is not None else getattr(tenant, 'knowledge_bases', [])
         rag_context = ""
         sources = []
-        if tenant.knowledge_bases:
-            kb = tenant.knowledge_bases[0]
+        if kbs:
+            kb = kbs[0]
             rag_context = await self.rag.build_context(
                 collection_name=kb.qdrant_collection,
                 query=user_message,

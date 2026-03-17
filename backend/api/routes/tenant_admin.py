@@ -192,24 +192,29 @@ async def test_query(
         engine = _get_engine()
         t_start = time.monotonic()
 
-        # Ensure knowledge_bases are loaded (selectin may not fire across dependencies)
-        if not hasattr(tenant, '_kb_loaded'):
-            kb_result = await db.execute(
-                select(KnowledgeBase).where(KnowledgeBase.tenant_id == tenant.id)
-            )
-            tenant.knowledge_bases = kb_result.scalars().all()
-            tenant._kb_loaded = True
+        # Explicitly load knowledge bases (selectin lazy loading doesn't
+        # work reliably across FastAPI dependency boundaries)
+        kb_result = await db.execute(
+            select(KnowledgeBase).where(KnowledgeBase.tenant_id == tenant.id)
+        )
+        knowledge_bases = kb_result.scalars().all()
+
+        logger.info("Test query KB check",
+                     tenant=tenant.slug,
+                     kb_count=len(knowledge_bases),
+                     kb_names=[kb.name for kb in knowledge_bases])
 
         # Use a synthetic session ID for test queries
         test_session_id = f"test-{tenant.slug}-{int(time.time())}"
         engine.set_session_language(test_session_id, request.language)
 
-        # Process message WITHOUT sending to avatar
+        # Process message WITHOUT sending to avatar, pass KBs explicitly
         result = await engine.process_message(
             tenant=tenant,
             session_id=test_session_id,
             user_message=request.message,
             send_to_avatar=False,
+            knowledge_bases=knowledge_bases,
         )
 
         t_total = round((time.monotonic() - t_start) * 1000)
