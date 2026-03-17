@@ -179,8 +179,27 @@ class RAGPipeline:
         """
         Retrieve and format context for LLM consumption.
 
-        Retrieves relevant chunks and formats them into a single
-        context string that can be inserted into the LLM prompt.
+        Returns:
+            Formatted context string
+        """
+        context, _ = await self.build_context_with_sources(
+            collection_name, query, top_k=top_k, max_context_length=max_context_length
+        )
+        return context
+
+    async def build_context_with_sources(
+        self,
+        collection_name: str,
+        query: str,
+        top_k: int = 5,
+        max_context_length: int = 3000,
+    ) -> tuple[str, list[dict]]:
+        """
+        Retrieve and format context for LLM consumption — returns both
+        the formatted context AND source metadata in a SINGLE embedding call.
+
+        This avoids the expensive pattern of calling build_context() + retrieve()
+        separately, which would embed the same query twice (~400ms wasted).
 
         Args:
             collection_name: Tenant's Qdrant collection
@@ -189,12 +208,15 @@ class RAGPipeline:
             max_context_length: Maximum character length of context
 
         Returns:
-            Formatted context string
+            Tuple of (formatted_context_string, list_of_source_dicts)
         """
         results = await self.retrieve(collection_name, query, top_k=top_k)
 
         if not results:
-            return ""
+            return "", []
+
+        # Extract sources from results (before truncation)
+        sources = [{"source": r.get("source", ""), "score": r["score"]} for r in results]
 
         context_parts = []
         current_length = 0
@@ -213,11 +235,12 @@ class RAGPipeline:
             current_length += len(entry)
 
         context = "\n\n---\n\n".join(context_parts)
-        logger.info("Context built",
+        logger.info("Context built (with sources)",
                      collection=collection_name,
                      chunks_used=len(context_parts),
-                     context_length=len(context))
-        return context
+                     context_length=len(context),
+                     sources_count=len(sources))
+        return context, sources
 
     # ---- Cleanup Methods ----
 

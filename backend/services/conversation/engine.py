@@ -170,6 +170,7 @@ class ConversationEngine:
         Returns:
             dict with 'response', 'context_used', 'sources', etc.
         """
+        t_start = time.monotonic()
         logger.info("Processing message",
                      tenant=tenant.slug,
                      session=session_id,
@@ -177,30 +178,27 @@ class ConversationEngine:
 
         memory = self._get_memory(session_id)
 
-        # Step 1: RAG Retrieval
-        # Use explicitly passed knowledge_bases, or fall back to tenant relationship
+        # ── Step 1: RAG Retrieval (with timing) ──
+        t_rag_start = time.monotonic()
         kbs = knowledge_bases if knowledge_bases is not None else getattr(tenant, 'knowledge_bases', [])
         rag_context = ""
         sources = []
         if kbs:
-            # Search ALL knowledge bases (not just the first one)
-            # and use the first one that returns results
+            # Search ALL knowledge bases — use build_context_with_sources()
+            # to get BOTH context and sources in a SINGLE embedding call
+            # (previously called build_context + retrieve separately = 2x embedding cost)
             for kb in kbs:
                 logger.info("Trying RAG retrieval",
                             kb_name=kb.name,
                             collection=kb.qdrant_collection)
                 try:
-                    rag_context = await self.rag.build_context(
+                    rag_context, sources = await self.rag.build_context_with_sources(
                         collection_name=kb.qdrant_collection,
                         query=user_message,
                         top_k=5,
                         max_context_length=3000,
                     )
                     if rag_context:
-                        results = await self.rag.retrieve(
-                            kb.qdrant_collection, user_message, top_k=3
-                        )
-                        sources = [{"source": r["source"], "score": r["score"]} for r in results]
                         logger.info("RAG context found",
                                     kb_name=kb.name,
                                     context_length=len(rag_context),
@@ -212,8 +210,10 @@ class ConversationEngine:
                                    collection=kb.qdrant_collection,
                                    error=str(e))
                     continue
+        t_rag_end = time.monotonic()
+        duration_rag_ms = round((t_rag_end - t_rag_start) * 1000)
 
-        # Step 2: Build prompt (with session language)
+        # ── Step 2: Build prompt (with session language) ──
         session_language = self.get_session_language(session_id)
         messages = ContextBuilder.build_messages(
             system_prompt=tenant.system_prompt,
@@ -223,7 +223,8 @@ class ConversationEngine:
             language=session_language,
         )
 
-        # Step 3: LLM Call
+        # ── Step 3: LLM Call (with timing) ──
+        t_llm_start = time.monotonic()
         llm_provider = LLMProviderFactory.get_provider_for_tenant(tenant)
         llm_response = await llm_provider.chat(
             messages=messages,
@@ -231,10 +232,13 @@ class ConversationEngine:
             temperature=0.7,
             max_tokens=500,
         )
+        t_llm_end = time.monotonic()
+        duration_llm_ms = round((t_llm_end - t_llm_start) * 1000)
 
         response_text = llm_response.content
 
-        # Step 4: TTS → WebSocket → Avatar (LITE Mode audio pipeline)
+        # ── Step 4: TTS → WebSocket → Avatar (with timing) ──
+        t_tts_start = time.monotonic()
         avatar_sent = False
         if send_to_avatar:
             avatar_sent = await self._send_audio_to_avatar(
@@ -242,10 +246,23 @@ class ConversationEngine:
                 tenant=tenant,
                 text=response_text,
             )
+        t_tts_end = time.monotonic()
+        duration_tts_ms = round((t_tts_end - t_tts_start) * 1000)
 
-        # Step 5: Update conversation memory
+        # ── Step 5: Update conversation memory ──
         memory.add_user_message(user_message)
         memory.add_assistant_message(response_text)
+
+        duration_total_ms = round((time.monotonic() - t_start) * 1000)
+        logger.info("Message processed — TIMING BREAKDOWN",
+                     tenant=tenant.slug,
+                     session=session_id,
+                     rag_ms=duration_rag_ms,
+                     llm_ms=duration_llm_ms,
+                     tts_ms=duration_tts_ms,
+                     total_ms=duration_total_ms,
+                     rag_used=bool(rag_context),
+                     llm_model=llm_response.model)
 
         return {
             "response": response_text,
@@ -255,6 +272,9 @@ class ConversationEngine:
             "llm_provider": llm_response.provider,
             "usage": llm_response.usage,
             "avatar_sent": avatar_sent,
+            "duration_rag_ms": duration_rag_ms,
+            "duration_llm_ms": duration_llm_ms,
+            "duration_tts_ms": duration_tts_ms,
         }
 
     async def process_message_stream(

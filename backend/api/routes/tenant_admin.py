@@ -305,6 +305,9 @@ async def test_query(
             "llm_model": result.get("llm_model"),
             "llm_provider": result.get("llm_provider"),
             "duration_total_ms": t_total,
+            "duration_rag_ms": result.get("duration_rag_ms"),
+            "duration_llm_ms": result.get("duration_llm_ms"),
+            "duration_tts_ms": result.get("duration_tts_ms"),
             "tokens": result.get("usage"),
         }
 

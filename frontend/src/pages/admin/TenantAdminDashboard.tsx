@@ -177,10 +177,19 @@ function TestQueryTab({ token }: { token: string }) {
             </div>
           )}
 
-          <div className="flex gap-6 text-xs text-gray-500">
-            <span className="flex items-center gap-1">
-              <Clock className="w-3 h-3" /> {result.duration_total_ms}ms
+          <div className="flex flex-wrap gap-4 text-xs text-gray-500">
+            <span className="flex items-center gap-1 font-semibold text-gray-700">
+              <Clock className="w-3 h-3" /> {result.duration_total_ms}ms gesamt
             </span>
+            {result.duration_rag_ms != null && (
+              <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded">RAG: {result.duration_rag_ms}ms</span>
+            )}
+            {result.duration_llm_ms != null && (
+              <span className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded">LLM: {result.duration_llm_ms}ms</span>
+            )}
+            {result.duration_tts_ms != null && result.duration_tts_ms > 0 && (
+              <span className="px-2 py-0.5 bg-orange-50 text-orange-700 rounded">TTS: {result.duration_tts_ms}ms</span>
+            )}
             <span>{result.llm_model}</span>
             {result.tokens && (
               <span>{result.tokens.prompt_tokens + result.tokens.completion_tokens} Tokens</span>
