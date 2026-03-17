@@ -9,8 +9,8 @@
  * them to BCP-47 tags ('de-DE', 'en-US') for the Web Speech API.
  */
 
-import { useState, useRef, useCallback, useMemo } from 'react'
-import { Mic, MicOff, Loader2 } from 'lucide-react'
+import { useState, useRef, useCallback, useMemo, useEffect } from 'react'
+import { Mic, MicOff, Loader2, Volume2 } from 'lucide-react'
 
 /** Map short language codes to BCP-47 tags for Web Speech API */
 const LANGUAGE_MAP: Record<string, string> = {
@@ -97,6 +97,15 @@ export default function VoiceInput({
     setIsListening(false)
   }, [])
 
+  // Force-stop listening immediately when disabled becomes true
+  // (e.g., when avatar starts speaking or a new response is loading)
+  useEffect(() => {
+    if (disabled && isListening) {
+      stopListening()
+      setTranscript('')
+    }
+  }, [disabled, isListening, stopListening])
+
   return (
     <div className="flex items-center gap-3">
       <button
@@ -124,7 +133,14 @@ export default function VoiceInput({
         </div>
       )}
 
-      {!isListening && !transcript && (
+      {!isListening && !transcript && disabled && (
+        <span className="flex items-center gap-2 text-sm text-amber-500">
+          <Volume2 className="w-4 h-4 animate-pulse" />
+          Avatar spricht...
+        </span>
+      )}
+
+      {!isListening && !transcript && !disabled && (
         <span className="text-sm text-gray-400">
           oder per Mikrofon sprechen
         </span>

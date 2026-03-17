@@ -6,7 +6,7 @@
  * - WebSocket mode (streaming tokens for real-time display)
  */
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { conversationApi, createConversationSocket } from '../lib/api'
 
 export interface ChatMessage {
@@ -28,7 +28,26 @@ export function useConversation(options: UseConversationOptions) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [streamingText, setStreamingText] = useState('')
+  const [avatarSpeaking, setAvatarSpeaking] = useState(false)
   const socketRef = useRef<ReturnType<typeof createConversationSocket> | null>(null)
+  const speakingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Cleanup speaking timer on unmount
+  useEffect(() => {
+    return () => {
+      if (speakingTimerRef.current) clearTimeout(speakingTimerRef.current)
+    }
+  }, [])
+
+  /**
+   * Estimate how long the avatar will speak a given text.
+   * German speech: ~150 wpm ≈ 15 chars/sec → 67ms per char.
+   * We use 60ms/char + 500ms buffer, clamped to [2s, 15s].
+   */
+  const estimateSpeakingDuration = (text: string): number => {
+    const ms = text.length * 60 + 500
+    return Math.max(2000, Math.min(ms, 15000))
+  }
 
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim()) return
@@ -80,11 +99,22 @@ export function useConversation(options: UseConversationOptions) {
       // REST mode
       try {
         const response = await conversationApi.sendMessage(sessionId, text, apiKey)
+        const responseText = response.response || ''
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: response.response,
+          content: responseText,
           timestamp: new Date(),
         }])
+
+        // Avatar is now speaking the response audio via LiveKit.
+        // Lock the mic for the estimated speaking duration to prevent
+        // the avatar's audio from being picked up by the user's microphone.
+        setIsLoading(false)
+        setAvatarSpeaking(true)
+        if (speakingTimerRef.current) clearTimeout(speakingTimerRef.current)
+        speakingTimerRef.current = setTimeout(() => {
+          setAvatarSpeaking(false)
+        }, estimateSpeakingDuration(responseText))
       } catch (e: any) {
         console.error('Message error:', e)
         setMessages(prev => [...prev, {
@@ -92,7 +122,6 @@ export function useConversation(options: UseConversationOptions) {
           content: 'Entschuldigung, es gab einen Fehler bei der Verarbeitung.',
           timestamp: new Date(),
         }])
-      } finally {
         setIsLoading(false)
       }
     }
@@ -105,6 +134,7 @@ export function useConversation(options: UseConversationOptions) {
   return {
     messages,
     isLoading,
+    avatarSpeaking,
     streamingText,
     sendMessage,
     clearMessages,

@@ -166,6 +166,7 @@ export default function AvatarPage() {
   const {
     messages,
     isLoading,
+    avatarSpeaking,
     streamingText,
     sendMessage,
   } = useConversation({
@@ -339,7 +340,7 @@ export default function AvatarPage() {
               <div className="mt-4">
                 <VoiceInput
                   onTranscript={sendMessage}
-                  disabled={isLoading}
+                  disabled={isLoading || avatarSpeaking}
                   language={selectedLanguage || tenantConfig?.default_language || 'de'}
                 />
               </div>
