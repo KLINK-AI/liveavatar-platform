@@ -184,14 +184,17 @@ async def test_query(
     Returns answer text, RAG sources with confidence, and timing breakdown.
     Used by tenant admins to test KB quality directly in the admin panel.
     """
-    engine = _get_engine()
-    t_start = time.monotonic()
-
-    # Use a synthetic session ID for test queries
-    test_session_id = f"test-{tenant.slug}-{int(time.time())}"
-    engine.set_session_language(test_session_id, request.language)
+    import traceback
+    test_session_id = None
 
     try:
+        engine = _get_engine()
+        t_start = time.monotonic()
+
+        # Use a synthetic session ID for test queries
+        test_session_id = f"test-{tenant.slug}-{int(time.time())}"
+        engine.set_session_language(test_session_id, request.language)
+
         # Process message WITHOUT sending to avatar
         result = await engine.process_message(
             tenant=tenant,
@@ -229,17 +232,22 @@ async def test_query(
             "tokens": result.get("usage"),
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
-        import traceback
-        logger.error("Test query failed", error=str(e), traceback=traceback.format_exc())
+        tb = traceback.format_exc()
+        logger.error("Test query failed", error=str(e), traceback=tb)
         raise HTTPException(
             status_code=500,
             detail=f"Test query error: {type(e).__name__}: {str(e)}"
         )
 
     finally:
-        # Clean up test session memory
-        engine.clear_memory(test_session_id)
+        if test_session_id:
+            try:
+                _get_engine().clear_memory(test_session_id)
+            except Exception:
+                pass
 
 
 # --- Document Analytics ---
