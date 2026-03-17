@@ -229,6 +229,14 @@ async def test_query(
             "tokens": result.get("usage"),
         }
 
+    except Exception as e:
+        import traceback
+        logger.error("Test query failed", error=str(e), traceback=traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Test query error: {type(e).__name__}: {str(e)}"
+        )
+
     finally:
         # Clean up test session memory
         engine.clear_memory(test_session_id)
