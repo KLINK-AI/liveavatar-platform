@@ -183,18 +183,35 @@ class ConversationEngine:
         rag_context = ""
         sources = []
         if kbs:
-            kb = kbs[0]
-            rag_context = await self.rag.build_context(
-                collection_name=kb.qdrant_collection,
-                query=user_message,
-                top_k=5,
-                max_context_length=3000,
-            )
-            if rag_context:
-                results = await self.rag.retrieve(
-                    kb.qdrant_collection, user_message, top_k=3
-                )
-                sources = [{"source": r["source"], "score": r["score"]} for r in results]
+            # Search ALL knowledge bases (not just the first one)
+            # and use the first one that returns results
+            for kb in kbs:
+                logger.info("Trying RAG retrieval",
+                            kb_name=kb.name,
+                            collection=kb.qdrant_collection)
+                try:
+                    rag_context = await self.rag.build_context(
+                        collection_name=kb.qdrant_collection,
+                        query=user_message,
+                        top_k=5,
+                        max_context_length=3000,
+                    )
+                    if rag_context:
+                        results = await self.rag.retrieve(
+                            kb.qdrant_collection, user_message, top_k=3
+                        )
+                        sources = [{"source": r["source"], "score": r["score"]} for r in results]
+                        logger.info("RAG context found",
+                                    kb_name=kb.name,
+                                    context_length=len(rag_context),
+                                    sources_count=len(sources))
+                        break  # Use the first KB that returns context
+                except Exception as e:
+                    logger.warning("RAG retrieval failed for KB",
+                                   kb_name=kb.name,
+                                   collection=kb.qdrant_collection,
+                                   error=str(e))
+                    continue
 
         # Step 2: Build prompt (with session language)
         session_language = self.get_session_language(session_id)
