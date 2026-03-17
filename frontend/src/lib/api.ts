@@ -234,17 +234,6 @@ export const tenantAdminApi = {
 
   getAnalyticsOverview: (token: string, days?: number) =>
     apiRequest(`/tenant-admin/analytics/overview${days ? '?days=' + days : ''}`, { token }),
-
-  // System Prompt
-  getSystemPrompt: (token: string) =>
-    apiRequest('/tenant-admin/system-prompt', { token }),
-
-  updateSystemPrompt: (systemPrompt: string, token: string) =>
-    apiRequest('/tenant-admin/system-prompt', {
-      method: 'PUT',
-      token,
-      body: { system_prompt: systemPrompt },
-    }),
 }
 
 // --- WebSocket for streaming ---

@@ -6,7 +6,8 @@
  * - Test Query: Chat with LLM+RAG without avatar (test KB quality)
  * - Chat Logs: All questions/answers with RAG sources + timing
  * - Analytics: Document usage, query volume, token consumption
- * - System Prompt: View and edit the tenant's system prompt
+ *
+ * Note: System Prompt is managed in the Master Admin area only (not accessible to customers).
  *
  * Reference: buergerguide.botgenossen.cloud/admin/rag
  */
@@ -14,13 +15,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  MessageSquare, FileText, BarChart3, Settings, LogOut,
+  MessageSquare, FileText, BarChart3, LogOut,
   Send, Loader2, Search, ChevronDown, ChevronRight,
   Clock, Database, Zap, AlertCircle
 } from 'lucide-react'
 import { tenantAdminApi } from '../../lib/api'
 
-type Tab = 'test-query' | 'chat-logs' | 'analytics' | 'system-prompt'
+type Tab = 'test-query' | 'chat-logs' | 'analytics'
 
 // ─── Login Form ───
 function LoginForm({ onLogin }: { onLogin: (token: string, user: any) => void }) {
@@ -527,91 +528,6 @@ function StatCard({ label, value, icon: Icon, color }: {
   )
 }
 
-// ─── System Prompt Tab ───
-function SystemPromptTab({ token }: { token: string }) {
-  const [prompt, setPrompt] = useState('')
-  const [originalPrompt, setOriginalPrompt] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [message, setMessage] = useState('')
-
-  useEffect(() => {
-    tenantAdminApi.getSystemPrompt(token)
-      .then(res => {
-        setPrompt(res.system_prompt)
-        setOriginalPrompt(res.system_prompt)
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false))
-  }, [token])
-
-  const handleSave = async () => {
-    setSaving(true)
-    setMessage('')
-    try {
-      await tenantAdminApi.updateSystemPrompt(prompt, token)
-      setOriginalPrompt(prompt)
-      setMessage('System Prompt gespeichert!')
-      setTimeout(() => setMessage(''), 3000)
-    } catch (err: any) {
-      setMessage('Fehler: ' + err.message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  if (loading) {
-    return (
-      <div className="text-center py-12">
-        <Loader2 className="w-8 h-8 animate-spin mx-auto text-blue-500" />
-      </div>
-    )
-  }
-
-  const hasChanges = prompt !== originalPrompt
-
-  return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold">System Prompt</h2>
-          <p className="text-sm text-gray-500">
-            Der System Prompt definiert das Verhalten und die Persönlichkeit des Avatars.
-          </p>
-        </div>
-        <button
-          onClick={handleSave}
-          disabled={!hasChanges || saving}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm"
-        >
-          {saving ? 'Speichern...' : 'Speichern'}
-        </button>
-      </div>
-
-      {message && (
-        <div className={`p-3 rounded-lg text-sm ${
-          message.startsWith('Fehler') ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'
-        }`}>
-          {message}
-        </div>
-      )}
-
-      <textarea
-        value={prompt}
-        onChange={e => setPrompt(e.target.value)}
-        rows={12}
-        className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:border-blue-500 focus:outline-none font-mono text-sm"
-        placeholder="System Prompt eingeben..."
-      />
-
-      <div className="text-xs text-gray-400">
-        {prompt.length} Zeichen
-        {hasChanges && <span className="ml-2 text-yellow-600">Ungespeicherte Änderungen</span>}
-      </div>
-    </div>
-  )
-}
-
 // ─── Main Dashboard ───
 export default function TenantAdminDashboard() {
   const navigate = useNavigate()
@@ -650,7 +566,6 @@ export default function TenantAdminDashboard() {
     { id: 'test-query', label: 'Test Query', icon: MessageSquare },
     { id: 'chat-logs', label: 'Chat Logs', icon: FileText },
     { id: 'analytics', label: 'Analytik', icon: BarChart3 },
-    { id: 'system-prompt', label: 'System Prompt', icon: Settings },
   ]
 
   return (
@@ -699,7 +614,6 @@ export default function TenantAdminDashboard() {
         {activeTab === 'test-query' && <TestQueryTab token={token} />}
         {activeTab === 'chat-logs' && <ChatLogsTab token={token} />}
         {activeTab === 'analytics' && <AnalyticsTab token={token} />}
-        {activeTab === 'system-prompt' && <SystemPromptTab token={token} />}
       </main>
     </div>
   )

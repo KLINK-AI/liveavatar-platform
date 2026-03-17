@@ -11,8 +11,9 @@ Endpoints:
 - POST /test-query            → Test query (LLM + RAG, no avatar)
 - GET  /analytics/documents   → Document usage analytics
 - GET  /analytics/overview    → General analytics overview
-- GET  /system-prompt         → Get current system prompt
-- PUT  /system-prompt         → Update system prompt
+
+Note: System Prompt management is in the Master Admin area only (tenants.py PUT endpoint).
+Customers must NOT have access to modify or view the system prompt.
 """
 
 from datetime import datetime, timedelta
@@ -55,11 +56,6 @@ class TestQueryRequest(BaseModel):
     """Test query without avatar — just LLM + RAG."""
     message: str
     language: str = "de"
-
-
-class SystemPromptUpdate(BaseModel):
-    """Update system prompt."""
-    system_prompt: str
 
 
 # --- Chat Logs ---
@@ -392,39 +388,3 @@ async def get_analytics_overview(
     }
 
 
-# --- System Prompt ---
-
-@router.get("/system-prompt")
-async def get_system_prompt(
-    tenant: Tenant = Depends(get_tenant_admin_tenant),
-):
-    """Get the current system prompt for the tenant."""
-    return {
-        "system_prompt": tenant.system_prompt,
-        "tenant_name": tenant.name,
-        "tenant_slug": tenant.slug,
-    }
-
-
-@router.put("/system-prompt")
-async def update_system_prompt(
-    request: SystemPromptUpdate,
-    tenant: Tenant = Depends(get_tenant_admin_tenant),
-    db: AsyncSession = Depends(get_db),
-):
-    """Update the system prompt for the tenant."""
-    old_prompt = tenant.system_prompt
-    tenant.system_prompt = request.system_prompt
-
-    logger.info(
-        "System prompt updated",
-        tenant=tenant.slug,
-        old_length=len(old_prompt) if old_prompt else 0,
-        new_length=len(request.system_prompt),
-    )
-
-    return {
-        "system_prompt": tenant.system_prompt,
-        "tenant_name": tenant.name,
-        "message": "System Prompt aktualisiert",
-    }
