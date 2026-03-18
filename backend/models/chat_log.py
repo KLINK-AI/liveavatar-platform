@@ -49,6 +49,11 @@ class ChatLog(Base):
     duration_rag_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     duration_llm_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     duration_tts_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    duration_first_sentence_ms: Mapped[int | None] = mapped_column(
+        Integer, nullable=True,
+        comment='Time until first sentence ready (RAG + LLM first sentence). '
+                'This is the perceived latency — when the avatar starts speaking.'
+    )
 
     # Token usage
     tokens_prompt: Mapped[int | None] = mapped_column(Integer, nullable=True)

@@ -41,12 +41,13 @@ export function useConversation(options: UseConversationOptions) {
 
   /**
    * Estimate how long the avatar will speak a given text.
-   * German speech: ~150 wpm ≈ 15 chars/sec → 67ms per char.
-   * We use 60ms/char + 500ms buffer, clamped to [2s, 15s].
+   * With shorter responses (1-2 sentences), the old formula overestimated.
+   * Adjusted: 50ms/char + 300ms buffer, clamped to [1s, 10s].
+   * Example: 50 chars = 2.8s, 100 chars = 5.3s, 150 chars = 7.8s
    */
   const estimateSpeakingDuration = (text: string): number => {
-    const ms = text.length * 60 + 500
-    return Math.max(2000, Math.min(ms, 15000))
+    const ms = text.length * 50 + 300
+    return Math.max(1000, Math.min(ms, 10000))
   }
 
   const sendMessage = useCallback(async (text: string) => {

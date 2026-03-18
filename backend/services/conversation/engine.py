@@ -367,6 +367,10 @@ class ConversationEngine:
             "duration_rag_ms": duration_rag_ms,
             "duration_llm_ms": duration_llm_ms,
             "duration_tts_ms": duration_tts_ms,
+            "duration_first_sentence_ms": (
+                duration_rag_ms + round((t_first_sentence - t_llm_start) * 1000)
+                if send_to_avatar and t_first_sentence else None
+            ),
         }
 
     async def process_message_stream(

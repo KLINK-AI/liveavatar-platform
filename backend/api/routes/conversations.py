@@ -102,6 +102,7 @@ async def send_message(
         duration_rag_ms=result.get("duration_rag_ms"),
         duration_llm_ms=result.get("duration_llm_ms"),
         duration_tts_ms=result.get("duration_tts_ms"),
+        duration_first_sentence_ms=result.get("duration_first_sentence_ms"),
         tokens_prompt=usage.get("prompt_tokens"),
         tokens_completion=usage.get("completion_tokens"),
         llm_provider=result.get("llm_provider"),

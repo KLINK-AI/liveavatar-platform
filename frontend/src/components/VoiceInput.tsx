@@ -36,12 +36,24 @@ export default function VoiceInput({
   const [isListening, setIsListening] = useState(false)
   const [transcript, setTranscript] = useState('')
   const recognitionRef = useRef<any>(null)
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const latestTranscriptRef = useRef<string>('')
+
+  /** How long to wait after last speech before sending (ms) */
+  const SILENCE_TIMEOUT = 2000
 
   // Resolve short code ('de') to BCP-47 ('de-DE') for Web Speech API
   const speechLang = useMemo(
     () => LANGUAGE_MAP[language] || language,
     [language],
   )
+
+  // Cleanup silence timer on unmount
+  useEffect(() => {
+    return () => {
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
+    }
+  }, [])
 
   const startListening = useCallback(() => {
     // Check browser support
@@ -55,35 +67,60 @@ export default function VoiceInput({
 
     const recognition = new SpeechRecognition()
     recognition.lang = speechLang
-    recognition.continuous = false
+    recognition.continuous = true       // Keep listening (don't auto-stop on pause)
     recognition.interimResults = true
 
     recognition.onstart = () => {
       setIsListening(true)
       setTranscript('')
+      latestTranscriptRef.current = ''
     }
 
     recognition.onresult = (event: any) => {
-      const result = event.results[event.results.length - 1]
-      const text = result[0].transcript
+      // Combine all results into one transcript
+      let fullTranscript = ''
+      for (let i = 0; i < event.results.length; i++) {
+        fullTranscript += event.results[i][0].transcript
+      }
 
-      setTranscript(text)
+      setTranscript(fullTranscript)
+      latestTranscriptRef.current = fullTranscript
 
-      if (result.isFinal) {
-        onTranscript(text)
+      // Reset silence timer on every new speech input.
+      // After 2s of silence, we consider the user done speaking.
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
+      silenceTimerRef.current = setTimeout(() => {
+        const finalText = latestTranscriptRef.current.trim()
+        if (finalText) {
+          onTranscript(finalText)
+        }
+        if (recognitionRef.current) {
+          try { recognitionRef.current.stop() } catch (_) {}
+        }
         setIsListening(false)
         setTranscript('')
-      }
+        latestTranscriptRef.current = ''
+      }, SILENCE_TIMEOUT)
     }
 
     recognition.onerror = (event: any) => {
       console.error('Speech recognition error:', event.error)
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
       setIsListening(false)
       setTranscript('')
     }
 
     recognition.onend = () => {
+      // With continuous=true, the browser may still auto-stop.
+      // If we have pending text and the silence timer hasn't fired yet,
+      // send what we have.
+      if (latestTranscriptRef.current.trim() && silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current)
+        onTranscript(latestTranscriptRef.current.trim())
+        latestTranscriptRef.current = ''
+      }
       setIsListening(false)
+      setTranscript('')
     }
 
     recognitionRef.current = recognition
@@ -91,11 +128,19 @@ export default function VoiceInput({
   }, [speechLang, onTranscript])
 
   const stopListening = useCallback(() => {
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
+    // When user manually stops, send whatever was said so far
+    const finalText = latestTranscriptRef.current.trim()
+    if (finalText) {
+      onTranscript(finalText)
+    }
     if (recognitionRef.current) {
-      recognitionRef.current.stop()
+      try { recognitionRef.current.stop() } catch (_) {}
     }
     setIsListening(false)
-  }, [])
+    setTranscript('')
+    latestTranscriptRef.current = ''
+  }, [onTranscript])
 
   // Force-stop listening immediately when disabled becomes true
   // (e.g., when avatar starts speaking or a new response is loading)
