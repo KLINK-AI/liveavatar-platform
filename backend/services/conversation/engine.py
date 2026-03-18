@@ -230,16 +230,41 @@ class ConversationEngine:
 
         llm_provider = LLMProviderFactory.get_provider_for_tenant(tenant)
 
-        # ── Step 3+4: Streaming LLM + sentence-wise TTS (overlapped) ──
+        # ── Step 3+4: Streaming LLM + parallel TTS (non-blocking) ──
         if send_to_avatar:
-            # STREAMING MODE: LLM streams tokens, each completed sentence
-            # is sent to TTS→Avatar immediately — massive latency reduction.
+            # STREAMING MODE: LLM streams tokens → sentence detected →
+            # TTS fires as background task (non-blocking!) → LLM continues
+            # immediately reading next tokens while TTS runs in parallel.
+            # A queue ensures sentences are sent to the avatar in order.
             t_llm_start = time.monotonic()
             full_response = ""
             sentence_buffer = ""
             sentences_sent = 0
             t_first_sentence = None
-            duration_tts_ms = 0
+            tts_tasks: list[asyncio.Task] = []
+
+            # Ordered queue: ensures avatar receives sentences in sequence
+            tts_queue: asyncio.Queue[str] = asyncio.Queue()
+            tts_worker_done = asyncio.Event()
+
+            async def _tts_worker():
+                """Background worker: sends queued sentences to avatar in order."""
+                while True:
+                    sentence = await tts_queue.get()
+                    if sentence is None:  # Poison pill — stop worker
+                        break
+                    try:
+                        await self._send_audio_to_avatar(
+                            session_id=session_id,
+                            tenant=tenant,
+                            text=sentence,
+                        )
+                    except Exception as e:
+                        logger.error("TTS worker error", error=str(e))
+                tts_worker_done.set()
+
+            # Start TTS worker as background task
+            worker_task = asyncio.create_task(_tts_worker())
 
             async for token in llm_provider.chat_stream(
                 messages=messages,
@@ -249,7 +274,7 @@ class ConversationEngine:
                 full_response += token
                 sentence_buffer += token
 
-                # Detect sentence boundary and fire TTS immediately
+                # Detect sentence boundary and queue TTS (non-blocking!)
                 if any(sentence_buffer.rstrip().endswith(p) for p in ".!?"):
                     sentence = sentence_buffer.strip()
                     sentence_buffer = ""
@@ -257,37 +282,32 @@ class ConversationEngine:
                     if sentence:
                         if sentences_sent == 0:
                             t_first_sentence = time.monotonic()
-                            logger.info("First sentence ready",
+                            logger.info("First sentence ready — TTS queued (non-blocking)",
                                         ms_since_llm_start=round((t_first_sentence - t_llm_start) * 1000),
                                         sentence_length=len(sentence))
 
-                        # Fire TTS for this sentence (runs while LLM continues)
-                        t_tts_s = time.monotonic()
-                        await self._send_audio_to_avatar(
-                            session_id=session_id,
-                            tenant=tenant,
-                            text=sentence,
-                        )
-                        duration_tts_ms += round((time.monotonic() - t_tts_s) * 1000)
+                        # Queue sentence for TTS — does NOT block LLM stream
+                        await tts_queue.put(sentence)
                         sentences_sent += 1
 
-            # Send any remaining text after stream ends
+            t_llm_done = time.monotonic()
+            duration_llm_ms = round((t_llm_done - t_llm_start) * 1000)
+
+            # Send any remaining text after LLM stream ends
             if sentence_buffer.strip():
-                t_tts_s = time.monotonic()
-                await self._send_audio_to_avatar(
-                    session_id=session_id,
-                    tenant=tenant,
-                    text=sentence_buffer.strip(),
-                )
-                duration_tts_ms += round((time.monotonic() - t_tts_s) * 1000)
+                await tts_queue.put(sentence_buffer.strip())
                 sentences_sent += 1
 
-            t_llm_end = time.monotonic()
-            duration_llm_ms = round((t_llm_end - t_llm_start) * 1000)
+            # Signal TTS worker to finish after all sentences processed
+            await tts_queue.put(None)
+            await worker_task  # Wait for all TTS to complete
+
+            t_all_done = time.monotonic()
+            duration_tts_ms = round((t_all_done - t_llm_done) * 1000)
             response_text = full_response
             avatar_sent = sentences_sent > 0
 
-            # Estimate token usage from response length (streaming doesn't return exact counts)
+            # Estimate token usage from response length
             est_completion_tokens = len(response_text) // 4
             usage = {"prompt_tokens": None, "completion_tokens": est_completion_tokens}
             llm_model = tenant.llm_model or "unknown"
@@ -297,8 +317,8 @@ class ConversationEngine:
                         tenant=tenant.slug,
                         session=session_id,
                         rag_ms=duration_rag_ms,
-                        llm_stream_ms=duration_llm_ms,
-                        tts_total_ms=duration_tts_ms,
+                        llm_pure_ms=duration_llm_ms,
+                        tts_remaining_ms=duration_tts_ms,
                         sentences=sentences_sent,
                         first_sentence_ms=round((t_first_sentence - t_llm_start) * 1000) if t_first_sentence else None,
                         total_ms=round((time.monotonic() - t_start) * 1000))
