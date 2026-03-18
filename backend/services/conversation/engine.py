@@ -156,19 +156,18 @@ class ConversationEngine:
         knowledge_bases: list | None = None,
     ) -> dict:
         """
-        Process a user message through the full pipeline.
+        Process a user message through the full pipeline with sentence-level streaming.
 
-        Flow: Message → RAG → LLM → TTS → WebSocket → Avatar
+        Optimized flow (v2.3):
+          Message → RAG → LLM *streams* tokens → sentence detected →
+          TTS fires immediately for that sentence → Avatar speaks first sentence
+          WHILE LLM is still generating the next sentence.
 
-        Args:
-            tenant: The tenant configuration
-            session_id: Internal session ID
-            user_message: User's question/input
-            send_to_avatar: Whether to send response to avatar via audio
-            knowledge_bases: Optional explicit list of KBs (bypasses tenant.knowledge_bases)
+        This reduces perceived latency from "RAG + full LLM + full TTS" to
+        "RAG + time-to-first-sentence (~300-500ms) + TTS-for-first-sentence".
 
-        Returns:
-            dict with 'response', 'context_used', 'sources', etc.
+        When send_to_avatar=False (e.g. test-query), falls back to a single
+        non-streaming LLM call for simplicity and accurate token counting.
         """
         t_start = time.monotonic()
         logger.info("Processing message",
@@ -179,9 +178,6 @@ class ConversationEngine:
         memory = self._get_memory(session_id)
 
         # ── Step 1: RAG Retrieval (with timing) ──
-        # Parallel search across ALL knowledge bases using asyncio.gather().
-        # The embedding is cached after the first call, so parallel KB searches
-        # re-use the same embedding vector (cache hit) — no extra API cost.
         t_rag_start = time.monotonic()
         kbs = knowledge_bases if knowledge_bases is not None else getattr(tenant, 'knowledge_bases', [])
         rag_context = ""
@@ -193,8 +189,8 @@ class ConversationEngine:
                     ctx, srcs = await self.rag.build_context_with_sources(
                         collection_name=kb.qdrant_collection,
                         query=user_message,
-                        top_k=5,
-                        max_context_length=3000,
+                        top_k=4,
+                        max_context_length=2000,
                     )
                     return ctx, srcs, kb.name
                 except Exception as e:
@@ -205,14 +201,11 @@ class ConversationEngine:
                     return "", [], kb.name
 
             if len(kbs) == 1:
-                # Single KB — direct call (no gather overhead)
                 rag_context, sources, _ = await _search_kb(kbs[0])
             else:
-                # Multiple KBs — search in parallel
                 logger.info("Parallel RAG search", kb_count=len(kbs),
                             kbs=[kb.name for kb in kbs])
                 results = await asyncio.gather(*[_search_kb(kb) for kb in kbs])
-                # Pick the first result with context (prefer most relevant)
                 for ctx, srcs, kb_name in results:
                     if ctx:
                         rag_context = ctx
@@ -235,54 +228,121 @@ class ConversationEngine:
             language=session_language,
         )
 
-        # ── Step 3: LLM Call (with timing) ──
-        t_llm_start = time.monotonic()
         llm_provider = LLMProviderFactory.get_provider_for_tenant(tenant)
-        llm_response = await llm_provider.chat(
-            messages=messages,
-            model=tenant.llm_model,
-            temperature=0.7,
-            max_tokens=500,
-        )
-        t_llm_end = time.monotonic()
-        duration_llm_ms = round((t_llm_end - t_llm_start) * 1000)
 
-        response_text = llm_response.content
-
-        # ── Step 4: TTS → WebSocket → Avatar (with timing) ──
-        t_tts_start = time.monotonic()
-        avatar_sent = False
+        # ── Step 3+4: Streaming LLM + sentence-wise TTS (overlapped) ──
         if send_to_avatar:
-            avatar_sent = await self._send_audio_to_avatar(
-                session_id=session_id,
-                tenant=tenant,
-                text=response_text,
+            # STREAMING MODE: LLM streams tokens, each completed sentence
+            # is sent to TTS→Avatar immediately — massive latency reduction.
+            t_llm_start = time.monotonic()
+            full_response = ""
+            sentence_buffer = ""
+            sentences_sent = 0
+            t_first_sentence = None
+            duration_tts_ms = 0
+
+            async for token in llm_provider.chat_stream(
+                messages=messages,
+                model=tenant.llm_model,
+                max_tokens=250,
+            ):
+                full_response += token
+                sentence_buffer += token
+
+                # Detect sentence boundary and fire TTS immediately
+                if any(sentence_buffer.rstrip().endswith(p) for p in ".!?"):
+                    sentence = sentence_buffer.strip()
+                    sentence_buffer = ""
+
+                    if sentence:
+                        if sentences_sent == 0:
+                            t_first_sentence = time.monotonic()
+                            logger.info("First sentence ready",
+                                        ms_since_llm_start=round((t_first_sentence - t_llm_start) * 1000),
+                                        sentence_length=len(sentence))
+
+                        # Fire TTS for this sentence (runs while LLM continues)
+                        t_tts_s = time.monotonic()
+                        await self._send_audio_to_avatar(
+                            session_id=session_id,
+                            tenant=tenant,
+                            text=sentence,
+                        )
+                        duration_tts_ms += round((time.monotonic() - t_tts_s) * 1000)
+                        sentences_sent += 1
+
+            # Send any remaining text after stream ends
+            if sentence_buffer.strip():
+                t_tts_s = time.monotonic()
+                await self._send_audio_to_avatar(
+                    session_id=session_id,
+                    tenant=tenant,
+                    text=sentence_buffer.strip(),
+                )
+                duration_tts_ms += round((time.monotonic() - t_tts_s) * 1000)
+                sentences_sent += 1
+
+            t_llm_end = time.monotonic()
+            duration_llm_ms = round((t_llm_end - t_llm_start) * 1000)
+            response_text = full_response
+            avatar_sent = sentences_sent > 0
+
+            # Estimate token usage from response length (streaming doesn't return exact counts)
+            est_completion_tokens = len(response_text) // 4
+            usage = {"prompt_tokens": None, "completion_tokens": est_completion_tokens}
+            llm_model = tenant.llm_model or "unknown"
+            llm_provider_name = llm_provider.__class__.__name__
+
+            logger.info("Streaming message processed — TIMING",
+                        tenant=tenant.slug,
+                        session=session_id,
+                        rag_ms=duration_rag_ms,
+                        llm_stream_ms=duration_llm_ms,
+                        tts_total_ms=duration_tts_ms,
+                        sentences=sentences_sent,
+                        first_sentence_ms=round((t_first_sentence - t_llm_start) * 1000) if t_first_sentence else None,
+                        total_ms=round((time.monotonic() - t_start) * 1000))
+
+        else:
+            # NON-STREAMING MODE: for test-query (no avatar), use single LLM call
+            # for accurate token counting and simpler timing.
+            t_llm_start = time.monotonic()
+            llm_response = await llm_provider.chat(
+                messages=messages,
+                model=tenant.llm_model,
+                temperature=0.7,
+                max_tokens=250,
             )
-        t_tts_end = time.monotonic()
-        duration_tts_ms = round((t_tts_end - t_tts_start) * 1000)
+            t_llm_end = time.monotonic()
+            duration_llm_ms = round((t_llm_end - t_llm_start) * 1000)
+            response_text = llm_response.content
+            avatar_sent = False
+            duration_tts_ms = 0
+            usage = llm_response.usage
+            llm_model = llm_response.model
+            llm_provider_name = llm_response.provider
+
+            logger.info("Message processed (no avatar) — TIMING",
+                        tenant=tenant.slug,
+                        session=session_id,
+                        rag_ms=duration_rag_ms,
+                        llm_ms=duration_llm_ms,
+                        total_ms=round((time.monotonic() - t_start) * 1000),
+                        llm_model=llm_model)
 
         # ── Step 5: Update conversation memory ──
         memory.add_user_message(user_message)
         memory.add_assistant_message(response_text)
 
         duration_total_ms = round((time.monotonic() - t_start) * 1000)
-        logger.info("Message processed — TIMING BREAKDOWN",
-                     tenant=tenant.slug,
-                     session=session_id,
-                     rag_ms=duration_rag_ms,
-                     llm_ms=duration_llm_ms,
-                     tts_ms=duration_tts_ms,
-                     total_ms=duration_total_ms,
-                     rag_used=bool(rag_context),
-                     llm_model=llm_response.model)
 
         return {
             "response": response_text,
             "context_used": bool(rag_context),
             "sources": sources,
-            "llm_model": llm_response.model,
-            "llm_provider": llm_response.provider,
-            "usage": llm_response.usage,
+            "llm_model": llm_model,
+            "llm_provider": llm_provider_name,
+            "usage": usage,
             "avatar_sent": avatar_sent,
             "duration_rag_ms": duration_rag_ms,
             "duration_llm_ms": duration_llm_ms,
@@ -344,7 +404,7 @@ class ConversationEngine:
         full_response = ""
         sentence_buffer = ""
 
-        async for token in llm_provider.chat_stream(messages=messages, max_tokens=500):
+        async for token in llm_provider.chat_stream(messages=messages, max_tokens=250):
             full_response += token
             sentence_buffer += token
 

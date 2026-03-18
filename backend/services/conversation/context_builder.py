@@ -49,17 +49,17 @@ LANGUAGE_INSTRUCTIONS = {
 AVATAR_STYLE_INSTRUCTIONS = {
     "de": (
         "\n\nWichtig: Deine Antworten werden von einem Video-Avatar gesprochen. "
-        "Halte deine Antworten daher natürlich und gesprächsnah. "
+        "Halte deine Antworten kurz, direkt und natürlich. "
         "Verwende keine Markdown-Formatierung, Aufzählungszeichen oder Sonderzeichen. "
-        "Antworte in ganzen, fließenden Sätzen, die sich gut vorlesen lassen. "
-        "Halte die Antworten prägnant — idealerweise 2-4 Sätze."
+        "Antworte in 1-2 klaren Sätzen, die die Frage direkt beantworten. "
+        "Nur bei komplexen Themen maximal 3 Sätze. Kein Smalltalk, keine Wiederholungen."
     ),
     "en": (
         "\n\nImportant: Your responses will be spoken by a video avatar. "
-        "Keep your answers natural and conversational. "
+        "Keep your answers short, direct and natural. "
         "Do not use markdown formatting, bullet points, or special characters. "
-        "Respond in complete, flowing sentences that sound good when read aloud. "
-        "Keep responses concise — ideally 2-4 sentences."
+        "Respond in 1-2 clear sentences that directly answer the question. "
+        "Only use up to 3 sentences for complex topics. No filler, no repetition."
     ),
 }
 
