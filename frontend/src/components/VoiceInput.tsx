@@ -38,6 +38,10 @@ export default function VoiceInput({
   const recognitionRef = useRef<any>(null)
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const latestTranscriptRef = useRef<string>('')
+  // Guard flag: prevents onTranscript from being called more than once
+  // per recognition session. The race condition between the silence timer,
+  // onend handler, and manual stop could otherwise fire onTranscript 2-3x.
+  const hasSentRef = useRef<boolean>(false)
 
   /** How long to wait after last speech before sending (ms) */
   const SILENCE_TIMEOUT = 2000
@@ -74,6 +78,7 @@ export default function VoiceInput({
       setIsListening(true)
       setTranscript('')
       latestTranscriptRef.current = ''
+      hasSentRef.current = false  // Reset guard for new session
     }
 
     recognition.onresult = (event: any) => {
@@ -90,8 +95,10 @@ export default function VoiceInput({
       // After 2s of silence, we consider the user done speaking.
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
       silenceTimerRef.current = setTimeout(() => {
+        if (hasSentRef.current) return  // Already sent — skip
         const finalText = latestTranscriptRef.current.trim()
         if (finalText) {
+          hasSentRef.current = true
           onTranscript(finalText)
         }
         if (recognitionRef.current) {
@@ -112,10 +119,10 @@ export default function VoiceInput({
 
     recognition.onend = () => {
       // With continuous=true, the browser may still auto-stop.
-      // If we have pending text and the silence timer hasn't fired yet,
-      // send what we have.
-      if (latestTranscriptRef.current.trim() && silenceTimerRef.current) {
-        clearTimeout(silenceTimerRef.current)
+      // If we have pending text and it hasn't been sent yet, send it now.
+      if (!hasSentRef.current && latestTranscriptRef.current.trim()) {
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
+        hasSentRef.current = true
         onTranscript(latestTranscriptRef.current.trim())
         latestTranscriptRef.current = ''
       }
@@ -129,10 +136,13 @@ export default function VoiceInput({
 
   const stopListening = useCallback(() => {
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
-    // When user manually stops, send whatever was said so far
-    const finalText = latestTranscriptRef.current.trim()
-    if (finalText) {
-      onTranscript(finalText)
+    // When user manually stops, send whatever was said so far (only once)
+    if (!hasSentRef.current) {
+      const finalText = latestTranscriptRef.current.trim()
+      if (finalText) {
+        hasSentRef.current = true
+        onTranscript(finalText)
+      }
     }
     if (recognitionRef.current) {
       try { recognitionRef.current.stop() } catch (_) {}

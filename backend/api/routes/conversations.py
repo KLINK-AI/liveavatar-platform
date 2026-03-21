@@ -20,8 +20,17 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import time
+import structlog
 
 from database import get_db
+
+logger = structlog.get_logger()
+
+# In-memory deduplication: prevent same message from being processed twice
+# within a short window (e.g., Web Speech API race condition).
+# Key: (session_id, message_hash) → timestamp
+_recent_messages: dict[tuple[str, int], float] = {}
+DEDUP_WINDOW_SEC = 5.0  # Ignore duplicate within this window
 from models.tenant import Tenant
 from models.session import AvatarSession, SessionStatus
 from models.conversation import Conversation, Message, MessageRole
@@ -63,6 +72,32 @@ async def send_message(
     chunks to the LiveAvatar WebSocket for real-time lip-sync.
     """
     session = await _get_active_session(session_id, tenant.id, db)
+
+    # ── Deduplication guard ──
+    # Prevents the same message from being processed twice within a short
+    # window. This catches race conditions in the Web Speech API where
+    # both the silence timer and onend handler fire onTranscript().
+    now = time.monotonic()
+    dedup_key = (session_id, hash(request.message))
+    last_seen = _recent_messages.get(dedup_key)
+    if last_seen and (now - last_seen) < DEDUP_WINDOW_SEC:
+        logger.warning(
+            "Duplicate message blocked",
+            session_id=session_id,
+            message=request.message[:80],
+            gap_ms=round((now - last_seen) * 1000),
+        )
+        raise HTTPException(
+            status_code=429,
+            detail="Duplicate message detected — please wait before sending the same message again.",
+        )
+    _recent_messages[dedup_key] = now
+
+    # Cleanup old entries (prevent memory leak)
+    cutoff = now - DEDUP_WINDOW_SEC * 2
+    stale = [k for k, v in _recent_messages.items() if v < cutoff]
+    for k in stale:
+        del _recent_messages[k]
 
     engine = get_engine()
     t_start = time.monotonic()
