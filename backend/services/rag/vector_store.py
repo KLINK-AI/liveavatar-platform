@@ -181,7 +181,7 @@ class VectorStore:
         collection_name: str,
         query: str,
         top_k: int = 5,
-        score_threshold: float = 0.3,
+        score_threshold: float = 0.4,
         document_id: Optional[str] = None,
     ) -> list[dict]:
         """

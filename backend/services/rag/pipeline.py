@@ -148,7 +148,7 @@ class RAGPipeline:
         collection_name: str,
         query: str,
         top_k: int = 5,
-        score_threshold: float = 0.3,
+        score_threshold: float = 0.4,
     ) -> list[dict]:
         """
         Retrieve relevant chunks for a user query.

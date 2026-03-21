@@ -191,7 +191,7 @@ class ConversationEngine:
                     ctx, srcs = await self.rag.build_context_with_sources(
                         collection_name=kb.qdrant_collection,
                         query=user_message,
-                        top_k=4,
+                        top_k=3,
                         max_context_length=2000,
                     )
                     return ctx, srcs, kb.name

@@ -454,13 +454,43 @@ async def _setup_session_services(
         logger.info("TTS pre-generation already complete before background task", session_id=session_id)
 
     t_setup = time.monotonic()
+
+    # === Step 2b: RAG Warmup — pre-warm Qdrant collection + embedding cache ===
+    # Runs a dummy query to load the tenant's Qdrant collection into memory,
+    # avoiding 2-3.5s cold-start latency on the first real user question.
+    rag_warmup_task = None
+    if tenant and getattr(tenant, 'knowledge_bases', None):
+        async def _warmup_rag():
+            try:
+                from services.rag.vector_store import get_vector_store
+                vs = get_vector_store()
+                for kb in tenant.knowledge_bases[:1]:  # Warm up primary KB only
+                    t_w0 = time.monotonic()
+                    await vs.search(
+                        collection_name=kb.qdrant_collection,
+                        query="warmup",
+                        top_k=1,
+                        score_threshold=0.0,
+                    )
+                    t_w1 = time.monotonic()
+                    logger.info(
+                        "RAG warmup complete — Qdrant collection loaded",
+                        session_id=session_id,
+                        collection=kb.qdrant_collection,
+                        warmup_ms=round((t_w1 - t_w0) * 1000),
+                    )
+            except Exception as e:
+                logger.warning("RAG warmup failed (non-critical)", error=str(e))
+
+        rag_warmup_task = asyncio.create_task(_warmup_rag())
+
     logger.info(
         "Setup phase complete — TIMING",
         session_id=session_id,
         setup_phase_ms=round((t_setup - t0) * 1000),
     )
 
-    # Step 2: Send greeting — audio should be cached from parallel phase
+    # Step 3: Send greeting — audio should be cached from parallel phase
     if greeting_text and tenant:
         try:
             t_greet0 = time.monotonic()
@@ -488,7 +518,14 @@ async def _setup_session_services(
     else:
         logger.info("No greeting text configured, skipping auto-greeting", session_id=session_id)
 
-    # Step 3: Start LiveKit agent for STT (OPTIONAL — text input still works without it)
+    # Ensure RAG warmup completes (runs in parallel with greeting, should be done by now)
+    if rag_warmup_task and not rag_warmup_task.done():
+        try:
+            await asyncio.wait_for(asyncio.shield(rag_warmup_task), timeout=5.0)
+        except (asyncio.TimeoutError, Exception) as e:
+            logger.warning("RAG warmup did not complete in time", error=str(e))
+
+    # Step 4: Start LiveKit agent for STT (OPTIONAL — text input still works without it)
     try:
         from services.livekit_agent import LiveKitAgentService
 
