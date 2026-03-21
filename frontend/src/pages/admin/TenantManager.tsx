@@ -250,14 +250,22 @@ export default function TenantManager() {
             </Link>
             <h1 className="text-2xl font-bold text-gray-900">Mandanten-Verwaltung</h1>
           </div>
-          {!showForm && (
-            <button
-              onClick={() => { setShowCreate(true); setEditingTenant(null); setForm({ ...emptyForm }) }}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          <div className="flex items-center gap-2">
+            <Link
+              to="/admin/users"
+              className="flex items-center gap-2 px-4 py-2 text-purple-600 hover:bg-purple-50 rounded-lg border border-purple-200"
             >
-              <Plus className="w-4 h-4" /> Neuer Mandant
-            </button>
-          )}
+              Benutzer-Verwaltung
+            </Link>
+            {!showForm && (
+              <button
+                onClick={() => { setShowCreate(true); setEditingTenant(null); setForm({ ...emptyForm }) }}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                <Plus className="w-4 h-4" /> Neuer Mandant
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Create / Edit Form */}

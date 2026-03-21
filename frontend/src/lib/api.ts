@@ -206,6 +206,33 @@ export const adminApi = {
 
   getTenantStats: (slug: string, token: string) =>
     apiRequest(`/admin/stats/${slug}`, { token }),
+
+  // User Management
+  listUsers: (token: string) =>
+    apiRequest('/admin/auth/users', { token }),
+
+  createUser: (data: {
+    email: string; password: string; display_name: string;
+    role: string; tenant_id?: string;
+  }, token: string) =>
+    apiRequest('/admin/auth/users', {
+      method: 'POST',
+      token,
+      body: data,
+    }),
+
+  updateUser: (userId: string, data: any, token: string) =>
+    apiRequest(`/admin/auth/users/${userId}`, {
+      method: 'PUT',
+      token,
+      body: data,
+    }),
+
+  deleteUser: (userId: string, token: string) =>
+    apiRequest(`/admin/auth/users/${userId}`, {
+      method: 'DELETE',
+      token,
+    }),
 }
 
 // --- Tenant Admin API (Kunden-Admin) ---

@@ -3,6 +3,7 @@ import AvatarPage from './pages/AvatarPage'
 import AdminDashboard from './pages/admin/Dashboard'
 import TenantManager from './pages/admin/TenantManager'
 import KnowledgeBasePage from './pages/admin/KnowledgeBase'
+import UserManager from './pages/admin/UserManager'
 import TenantAdminDashboard from './pages/admin/TenantAdminDashboard'
 
 function App() {
@@ -18,6 +19,7 @@ function App() {
       <Route path="/admin" element={<AdminDashboard />} />
       <Route path="/admin/tenants" element={<TenantManager />} />
       <Route path="/admin/knowledge/:tenantId" element={<KnowledgeBasePage />} />
+      <Route path="/admin/users" element={<UserManager />} />
 
       {/* Default: Landing */}
       <Route path="/" element={

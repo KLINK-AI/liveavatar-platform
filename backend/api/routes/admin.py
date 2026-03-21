@@ -213,6 +213,81 @@ async def list_users(
     ]
 
 
+class UpdateUserRequest(BaseModel):
+    """Update an existing user (superadmin only)."""
+    email: str | None = None
+    display_name: str | None = None
+    password: str | None = None
+    role: str | None = None
+    tenant_id: str | None = None
+    is_active: bool | None = None
+
+
+@router.put("/auth/users/{user_id}")
+async def update_user(
+    user_id: str,
+    request: UpdateUserRequest,
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update an existing user. Superadmin only."""
+    result = await db.execute(select(User).where(User.id == user_id))
+    target_user = result.scalar_one_or_none()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    update_data = request.model_dump(exclude_unset=True)
+
+    for key, value in update_data.items():
+        if key == "password" and value:
+            target_user.password_hash = hash_password(value)
+        elif key == "role" and value:
+            try:
+                target_user.role = UserRole(value)
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Invalid role: {value}")
+        elif key == "tenant_id":
+            if value:
+                tenant_check = await db.execute(select(Tenant).where(Tenant.id == value))
+                if not tenant_check.scalar_one_or_none():
+                    raise HTTPException(status_code=404, detail="Tenant not found")
+            target_user.tenant_id = value
+        elif key != "password":
+            setattr(target_user, key, value)
+
+    logger.info("User updated", user_id=user_id, fields=list(update_data.keys()))
+
+    return {
+        "id": target_user.id,
+        "email": target_user.email,
+        "display_name": target_user.display_name,
+        "role": target_user.role.value,
+        "tenant_id": target_user.tenant_id,
+        "is_active": target_user.is_active,
+    }
+
+
+@router.delete("/auth/users/{user_id}")
+async def delete_user(
+    user_id: str,
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a user. Superadmin only."""
+    result = await db.execute(select(User).where(User.id == user_id))
+    target_user = result.scalar_one_or_none()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if target_user.id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot delete yourself")
+
+    await db.delete(target_user)
+    logger.info("User deleted", user_id=user_id, email=target_user.email)
+
+    return {"status": "deleted", "user_id": user_id}
+
+
 # --- Stats Endpoints ---
 
 @router.get("/stats")
