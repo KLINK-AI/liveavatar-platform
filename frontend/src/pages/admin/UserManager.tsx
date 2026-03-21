@@ -187,119 +187,8 @@ export default function UserManager() {
     )
   }
 
-  // ─── Form Component ───
-  const UserFormPanel = ({ isEdit }: { isEdit: boolean }) => (
-    <div className="bg-white rounded-2xl shadow-lg p-6 mb-6 border border-blue-100">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-bold text-gray-900">
-          {isEdit ? `Benutzer bearbeiten: ${editingUser?.display_name}` : 'Neuen Benutzer anlegen'}
-        </h2>
-        <button
-          onClick={() => { setShowCreate(false); setEditingUser(null); setForm({ ...emptyForm }) }}
-          className="text-gray-400 hover:text-gray-600"
-        >
-          <X className="w-5 h-5" />
-        </button>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Display Name */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Anzeigename *</label>
-          <input
-            type="text"
-            value={form.display_name}
-            onChange={(e) => setForm({ ...form, display_name: e.target.value })}
-            placeholder="z.B. Marcus Kretschmer"
-            className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-        </div>
-
-        {/* Email */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">E-Mail *</label>
-          <input
-            type="email"
-            value={form.email}
-            onChange={(e) => setForm({ ...form, email: e.target.value })}
-            placeholder="admin@gemeinde.de"
-            className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-        </div>
-
-        {/* Password */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Passwort {isEdit ? '(leer lassen = unverändert)' : '*'}
-          </label>
-          <div className="relative">
-            <input
-              type={showPassword ? 'text' : 'password'}
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-              placeholder={isEdit ? 'Neues Passwort eingeben...' : 'Passwort setzen'}
-              className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-10"
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-            >
-              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
-          </div>
-        </div>
-
-        {/* Role */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Rolle *</label>
-          <select
-            value={form.role}
-            onChange={(e) => setForm({ ...form, role: e.target.value })}
-            className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option value="tenant_admin">Kunden-Admin</option>
-            <option value="superadmin">Superadmin</option>
-          </select>
-        </div>
-
-        {/* Tenant Assignment (only for tenant_admin) */}
-        {form.role === 'tenant_admin' && (
-          <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Mandant zuweisen *</label>
-            <select
-              value={form.tenant_id}
-              onChange={(e) => setForm({ ...form, tenant_id: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="">— Mandant wählen —</option>
-              {tenants.map(t => (
-                <option key={t.id} value={t.id}>{t.name} ({t.slug})</option>
-              ))}
-            </select>
-          </div>
-        )}
-      </div>
-
-      {/* Actions */}
-      <div className="flex justify-end gap-2 mt-6">
-        <button
-          onClick={() => { setShowCreate(false); setEditingUser(null); setForm({ ...emptyForm }) }}
-          className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg border border-gray-200"
-        >
-          Abbrechen
-        </button>
-        <button
-          onClick={isEdit ? handleUpdate : handleCreate}
-          disabled={saving}
-          className="flex items-center gap-2 px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50"
-        >
-          <Check className="w-4 h-4" />
-          {saving ? 'Speichern...' : isEdit ? 'Aktualisieren' : 'Benutzer anlegen'}
-        </button>
-      </div>
-    </div>
-  )
+  const isEdit = !!editingUser
+  const showForm = showCreate || isEdit
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -320,9 +209,113 @@ export default function UserManager() {
           </button>
         </div>
 
-        {/* Create/Edit Form */}
-        {showCreate && <UserFormPanel isEdit={false} />}
-        {editingUser && <UserFormPanel isEdit={true} />}
+        {/* Create/Edit Form — inline, not a nested component */}
+        {showForm && (
+          <div className="bg-white rounded-2xl shadow-lg p-6 mb-6 border border-blue-100">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-gray-900">
+                {isEdit ? `Benutzer bearbeiten: ${editingUser?.display_name}` : 'Neuen Benutzer anlegen'}
+              </h2>
+              <button
+                onClick={() => { setShowCreate(false); setEditingUser(null); setForm({ ...emptyForm }) }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Anzeigename *</label>
+                <input
+                  type="text"
+                  value={form.display_name}
+                  onChange={(e) => setForm({ ...form, display_name: e.target.value })}
+                  placeholder="z.B. Marcus Kretschmer"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">E-Mail *</label>
+                <input
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                  placeholder="admin@gemeinde.de"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Passwort {isEdit ? '(leer lassen = unverändert)' : '*'}
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={form.password}
+                    onChange={(e) => setForm({ ...form, password: e.target.value })}
+                    placeholder={isEdit ? 'Neues Passwort eingeben...' : 'Passwort setzen'}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Rolle *</label>
+                <select
+                  value={form.role}
+                  onChange={(e) => setForm({ ...form, role: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="tenant_admin">Kunden-Admin</option>
+                  <option value="superadmin">Superadmin</option>
+                </select>
+              </div>
+
+              {form.role === 'tenant_admin' && (
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Mandant zuweisen *</label>
+                  <select
+                    value={form.tenant_id}
+                    onChange={(e) => setForm({ ...form, tenant_id: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">— Mandant wählen —</option>
+                    {tenants.map(t => (
+                      <option key={t.id} value={t.id}>{t.name} ({t.slug})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 mt-6">
+              <button
+                onClick={() => { setShowCreate(false); setEditingUser(null); setForm({ ...emptyForm }) }}
+                className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg border border-gray-200"
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={isEdit ? handleUpdate : handleCreate}
+                disabled={saving}
+                className="flex items-center gap-2 px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50"
+              >
+                <Check className="w-4 h-4" />
+                {saving ? 'Speichern...' : isEdit ? 'Aktualisieren' : 'Benutzer anlegen'}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* User List */}
         {loading ? (
