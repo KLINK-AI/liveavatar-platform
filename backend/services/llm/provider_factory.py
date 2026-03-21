@@ -8,6 +8,7 @@ from services.llm.base import BaseLLMProvider
 from services.llm.openai_provider import OpenAIProvider
 from services.llm.anthropic_provider import AnthropicProvider
 from services.llm.ollama_provider import OllamaProvider
+from services.llm.groq_provider import GroqProvider
 
 logger = structlog.get_logger()
 settings = get_settings()
@@ -67,6 +68,11 @@ class LLMProviderFactory:
                 api_key=api_key or settings.anthropic_api_key,
                 default_model=model or "claude-sonnet-4-20250514",
             )
+        elif provider_name == "groq":
+            return GroqProvider(
+                api_key=api_key or settings.groq_api_key,
+                default_model=model or "llama-3.3-70b-versatile",
+            )
         elif provider_name == "ollama":
             return OllamaProvider(
                 base_url=settings.ollama_base_url,
@@ -75,7 +81,7 @@ class LLMProviderFactory:
         else:
             raise ValueError(
                 f"Unknown LLM provider: {provider_name}. "
-                f"Supported: openai, anthropic, ollama"
+                f"Supported: openai, anthropic, groq, ollama"
             )
 
     @classmethod
