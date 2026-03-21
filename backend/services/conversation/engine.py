@@ -76,10 +76,12 @@ class ConversationEngine:
         self._ws_managers.pop(session_id, None)
 
     def _get_tts_for_tenant(self, tenant: Tenant):
-        """Get TTS provider for a tenant (per-tenant key or global)."""
+        """Get TTS provider for a tenant (per-tenant key or global).
+        Uses turbo model for lower latency in regular conversation."""
         return TTSProviderFactory.get_provider(
             provider_name="elevenlabs",
             api_key=tenant.elevenlabs_api_key,
+            model_id=settings.elevenlabs_turbo_model_id,
         )
 
     def _get_voice_id(self, tenant: Tenant) -> str:
@@ -266,6 +268,13 @@ class ConversationEngine:
             # Start TTS worker as background task
             worker_task = asyncio.create_task(_tts_worker())
 
+            # Clause-level chunking: split on commas, semicolons, colons, dashes
+            # when the buffer is long enough. This sends shorter segments to TTS
+            # earlier, reducing time-to-first-audio significantly.
+            SENTENCE_ENDINGS = ".!?"
+            CLAUSE_DELIMITERS = ",;:–—"
+            MIN_CLAUSE_LENGTH = 40  # Only split on clause if buffer is long enough
+
             async for token in llm_provider.chat_stream(
                 messages=messages,
                 model=tenant.llm_model,
@@ -274,19 +283,26 @@ class ConversationEngine:
                 full_response += token
                 sentence_buffer += token
 
-                # Detect sentence boundary and queue TTS (non-blocking!)
-                if any(sentence_buffer.rstrip().endswith(p) for p in ".!?"):
+                stripped = sentence_buffer.rstrip()
+                is_sentence_end = any(stripped.endswith(p) for p in SENTENCE_ENDINGS)
+                is_clause_break = (
+                    len(stripped) >= MIN_CLAUSE_LENGTH
+                    and any(stripped.endswith(d) for d in CLAUSE_DELIMITERS)
+                )
+
+                if is_sentence_end or is_clause_break:
                     sentence = sentence_buffer.strip()
                     sentence_buffer = ""
 
                     if sentence:
                         if sentences_sent == 0:
                             t_first_sentence = time.monotonic()
-                            logger.info("First sentence ready — TTS queued (non-blocking)",
+                            logger.info("First chunk ready — TTS queued (non-blocking)",
                                         ms_since_llm_start=round((t_first_sentence - t_llm_start) * 1000),
-                                        sentence_length=len(sentence))
+                                        chunk_length=len(sentence),
+                                        split_type="sentence" if is_sentence_end else "clause")
 
-                        # Queue sentence for TTS — does NOT block LLM stream
+                        # Queue sentence/clause for TTS — does NOT block LLM stream
                         await tts_queue.put(sentence)
                         sentences_sent += 1
 
