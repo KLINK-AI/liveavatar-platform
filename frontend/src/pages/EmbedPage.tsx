@@ -27,7 +27,7 @@ import AvatarPlayer from '../components/AvatarPlayer'
 import PlayerControlBar from '../components/PlayerControlBar'
 import { useConversation } from '../hooks/useConversation'
 import { tenantApi, sessionApi } from '../lib/api'
-import { Play, Loader2 } from 'lucide-react'
+import { Play, Loader2, Square } from 'lucide-react'
 
 interface TenantConfig {
   name: string
@@ -64,6 +64,7 @@ export default function EmbedPage() {
   const [selectedLanguage, setSelectedLanguage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [chatVisible, setChatVisible] = useState(searchParams.get('chat') === '1')
+  const [showLanguagePicker, setShowLanguagePicker] = useState(false)
   const keepAliveRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const sessionStartedRef = useRef(false)
 
@@ -217,6 +218,23 @@ export default function EmbedPage() {
   )
 
 
+  const LANGUAGE_NAMES: Record<string, string> = {
+    de: 'Deutsch', en: 'English', fr: 'Français', es: 'Español', it: 'Italiano',
+    nl: 'Nederlands', pt: 'Português', pl: 'Polski', ru: 'Русский', uk: 'Українська',
+    tr: 'Türkçe', ar: 'العربية', zh: '中文', ja: '日本語', ko: '한국어',
+    hi: 'हिन्दी', sv: 'Svenska', no: 'Norsk', da: 'Dansk', fi: 'Suomi',
+    el: 'Ελληνικά', cs: 'Čeština', ro: 'Română', hu: 'Magyar',
+    bg: 'Български', hr: 'Hrvatski', sk: 'Slovenčina', sl: 'Slovenščina',
+  }
+
+  const LANGUAGE_FLAGS: Record<string, string> = {
+    de: '🇩🇪', en: '🇬🇧', fr: '🇫🇷', es: '🇪🇸', it: '🇮🇹', nl: '🇳🇱',
+    pt: '🇵🇹', pl: '🇵🇱', ru: '🇷🇺', uk: '🇺🇦', tr: '🇹🇷', ar: '🇸🇦',
+    zh: '🇨🇳', ja: '🇯🇵', ko: '🇰🇷', hi: '🇮🇳', sv: '🇸🇪', no: '🇳🇴',
+    da: '🇩🇰', fi: '🇫🇮', el: '🇬🇷', cs: '🇨🇿', ro: '🇷🇴', hu: '🇭🇺',
+    bg: '🇧🇬', hr: '🇭🇷', sk: '🇸🇰', sl: '🇸🇮',
+  }
+
   // --- RENDER ---
 
   if (state === 'loading') {
@@ -310,6 +328,31 @@ export default function EmbedPage() {
           {/* Control bar + input — overlays bottom of video */}
           {isActive && (
             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/50 to-transparent pt-8 z-20">
+              {/* Language picker popup */}
+              {showLanguagePicker && (
+                <div className="mx-3 mb-2 p-2 rounded-lg bg-black/70 backdrop-blur-sm border border-white/20">
+                  <div className="grid grid-cols-2 gap-1">
+                    {(tenantConfig?.supported_languages || []).map((lang) => (
+                      <button
+                        key={lang}
+                        onClick={() => {
+                          setSelectedLanguage(lang)
+                          setShowLanguagePicker(false)
+                        }}
+                        className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs text-left transition-colors ${
+                          selectedLanguage === lang
+                            ? 'bg-white/20 text-white font-medium'
+                            : 'text-white/70 hover:bg-white/10 hover:text-white'
+                        }`}
+                      >
+                        <span>{LANGUAGE_FLAGS[lang] || '🌐'}</span>
+                        <span>{LANGUAGE_NAMES[lang] || lang}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <PlayerControlBar
                 onTranscript={sendMessage}
                 disabled={isLoading || avatarSpeaking}
@@ -318,10 +361,11 @@ export default function EmbedPage() {
                 chatVisible={chatVisible}
                 onToggleChat={() => setChatVisible(v => !v)}
                 showLanguageButton={(tenantConfig?.supported_languages?.length || 0) > 1}
+                onLanguageChange={() => setShowLanguagePicker(v => !v)}
                 primaryColor={primaryColor}
               />
 
-              {/* Compact text input */}
+              {/* Compact text input + stop button */}
               <form
                 onSubmit={(e) => {
                   e.preventDefault()
@@ -351,6 +395,17 @@ export default function EmbedPage() {
                   </svg>
                 </button>
               </form>
+
+              {/* Session beenden button */}
+              <div className="flex justify-center pb-2">
+                <button
+                  onClick={stopSession}
+                  className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium text-white/70 hover:text-white bg-white/10 hover:bg-red-500/80 backdrop-blur-sm transition-all"
+                >
+                  <Square className="w-3 h-3" />
+                  Beenden
+                </button>
+              </div>
             </div>
           )}
         </div>
