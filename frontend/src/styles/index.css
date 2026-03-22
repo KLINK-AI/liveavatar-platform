@@ -56,3 +56,77 @@ body {
   border-top: 1px solid #e5e7eb;
   flex-shrink: 0;
 }
+
+/* Player Control Bar — below the avatar */
+.player-control-bar {
+  background: #ffffff;
+  border-radius: 0 0 12px 12px;
+  border: 1px solid #e5e7eb;
+  border-top: none;
+}
+
+.control-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.625rem;
+  border-radius: 9999px;
+  transition: all 150ms ease;
+  cursor: pointer;
+  border: none;
+  outline: none;
+}
+
+.control-btn:focus-visible {
+  box-shadow: 0 0 0 2px #93c5fd;
+}
+
+/* Chat panel slide animation */
+.chat-panel-enter {
+  animation: chatSlideIn 0.25s ease-out;
+}
+
+.chat-panel-exit {
+  animation: chatSlideOut 0.2s ease-in forwards;
+}
+
+@keyframes chatSlideIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes chatSlideOut {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(20px); }
+}
+
+/* Embed player — standalone for iframe embedding */
+.embed-player {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #000;
+}
+
+.embed-player .avatar-wrapper {
+  flex: 1;
+  aspect-ratio: auto;
+  border-radius: 0;
+}
+
+.embed-player .player-control-bar {
+  border-radius: 0;
+  border: none;
+  border-top: 1px solid #333;
+  background: #1a1a1a;
+}
+
+.embed-player .control-btn {
+  background: #333;
+  color: #ccc;
+}
+
+.embed-player .control-btn:hover {
+  background: #444;
+  color: #fff;
+}

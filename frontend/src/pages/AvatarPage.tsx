@@ -9,13 +9,16 @@
  * 4. Start avatar session with selected language
  * 5. Send greeting in selected language
  * 6. Begin conversation
+ *
+ * v2.5: Unified Player Control Bar (Mic, Language, Chat-Toggle)
+ *       Chat history hidden by default, toggle-able by user
  */
 
-import { useEffect, useState, useCallback, useRef, useLayoutEffect } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import AvatarPlayer from '../components/AvatarPlayer'
 import ChatInterface from '../components/ChatInterface'
-import VoiceInput from '../components/VoiceInput'
+import PlayerControlBar from '../components/PlayerControlBar'
 import LanguagePicker from '../components/LanguagePicker'
 import { useConversation } from '../hooks/useConversation'
 import { tenantApi, sessionApi } from '../lib/api'
@@ -54,10 +57,10 @@ export default function AvatarPage() {
   const [pageState, setPageState] = useState<PageState>('loading')
   const [selectedLanguage, setSelectedLanguage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [chatVisible, setChatVisible] = useState(false) // Hidden by default
+  const [showLanguagePicker, setShowLanguagePicker] = useState(false)
   const keepAliveRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const sessionStartedRef = useRef(false)
-  const avatarWrapperRef = useRef<HTMLDivElement>(null)
-  const [chatHeight, setChatHeight] = useState<number>(0)
 
   // Step 1: Load tenant config (includes API key, preview image, languages)
   useEffect(() => {
@@ -79,10 +82,8 @@ export default function AvatarPage() {
 
     const languages = tenantConfig.supported_languages || ['de']
     if (languages.length > 1) {
-      // Multi-language: show language picker
       setPageState('language_select')
     } else {
-      // Single language: start directly
       setSelectedLanguage(languages[0] || 'de')
     }
   }, [tenantConfig])
@@ -91,6 +92,7 @@ export default function AvatarPage() {
   const handleLanguageSelect = useCallback((language: string) => {
     setSelectedLanguage(language)
     setPageState('connecting')
+    setShowLanguagePicker(false)
   }, [])
 
   // Auto-start when language is selected and we're not yet in a session
@@ -109,7 +111,6 @@ export default function AvatarPage() {
     setError(null)
 
     try {
-      // Create session with selected language
       const data = await sessionApi.create(tenantConfig.api_key, { language })
       const newSession: AvatarSession = {
         sessionId: data.session_id,
@@ -128,10 +129,6 @@ export default function AvatarPage() {
           console.warn('Keep-alive failed:', e)
         }
       }, 60000)
-
-      // Greeting is now sent automatically by the backend
-      // immediately after WebSocket connects (no delay needed)
-
     } catch (e: any) {
       sessionStartedRef.current = false
       setError(e.message || 'Session konnte nicht gestartet werden.')
@@ -160,6 +157,7 @@ export default function AvatarPage() {
     setSession(null)
     setSelectedLanguage(null)
     sessionStartedRef.current = false
+    setChatVisible(false)
     setPageState('preview')
   }, [session, tenantConfig])
 
@@ -174,23 +172,16 @@ export default function AvatarPage() {
     apiKey: tenantConfig?.api_key || '',
   })
 
-  // Track avatar wrapper height → sync chat height to it
-  useEffect(() => {
-    const el = avatarWrapperRef.current
-    if (!el) return
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        setChatHeight(entry.contentRect.height)
-      }
-    })
-    observer.observe(el)
-    // Set initial height
-    setChatHeight(el.getBoundingClientRect().height)
-    return () => observer.disconnect()
-  }, [tenantConfig])
-
   const primaryColor = tenantConfig?.branding?.primary_color || '#2563eb'
   const isActive = session?.status === 'active' || session?.status === 'creating'
+  const hasMultipleLanguages = (tenantConfig?.supported_languages?.length || 0) > 1
+
+  // Handle language change during active session
+  const handleLanguageChangeRequest = useCallback(() => {
+    if (hasMultipleLanguages) {
+      setShowLanguagePicker(true)
+    }
+  }, [hasMultipleLanguages])
 
   // --- RENDER ---
 
@@ -274,19 +265,18 @@ export default function AvatarPage() {
           )}
         </div>
 
-        {/* Main Layout — avatar and chat side by side, same height */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Avatar Video / Preview — unified wrapper ensures consistent size */}
-          <div className="flex flex-col">
-            <div ref={avatarWrapperRef} className="avatar-wrapper shadow-2xl">
+        {/* Main Layout — Player with optional Chat panel */}
+        <div className={`grid gap-6 ${chatVisible && isActive ? 'grid-cols-1 lg:grid-cols-5' : 'grid-cols-1 max-w-2xl mx-auto'}`}>
+          {/* Player Column (Avatar + Control Bar) */}
+          <div className={`flex flex-col ${chatVisible && isActive ? 'lg:col-span-3' : ''}`}>
+            {/* Avatar Video / Preview */}
+            <div className="avatar-wrapper shadow-2xl">
               {session?.livekitUrl && session?.livekitToken ? (
-                /* Active session: show live avatar video */
                 <AvatarPlayer
                   livekitUrl={session.livekitUrl}
                   livekitToken={session.livekitToken}
                 />
               ) : (
-                /* Preview / Start screen */
                 <>
                   {/* Preview Image */}
                   {tenantConfig?.avatar_preview_image ? (
@@ -296,7 +286,6 @@ export default function AvatarPage() {
                       className="w-full h-full object-cover absolute inset-0"
                     />
                   ) : (
-                    /* Fallback: gradient background */
                     <div className="w-full h-full bg-gradient-to-br from-gray-800 to-gray-900 absolute inset-0" />
                   )}
 
@@ -335,39 +324,140 @@ export default function AvatarPage() {
               )}
             </div>
 
-            {/* Voice Input — only when active */}
+            {/* Player Control Bar — always visible when session is active */}
             {isActive && (
-              <div className="mt-4">
-                <VoiceInput
-                  onTranscript={sendMessage}
-                  disabled={isLoading || avatarSpeaking}
-                  language={selectedLanguage || tenantConfig?.default_language || 'de'}
+              <PlayerControlBar
+                onTranscript={sendMessage}
+                disabled={isLoading || avatarSpeaking}
+                avatarSpeaking={avatarSpeaking}
+                language={selectedLanguage || tenantConfig?.default_language || 'de'}
+                chatVisible={chatVisible}
+                onToggleChat={() => setChatVisible(v => !v)}
+                onLanguageChange={handleLanguageChangeRequest}
+                showLanguageButton={hasMultipleLanguages}
+                primaryColor={primaryColor}
+              />
+            )}
+
+            {/* Text input — always visible when session is active */}
+            {isActive && (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  const input = (e.target as HTMLFormElement).elements.namedItem('question') as HTMLInputElement
+                  if (input.value.trim() && !isLoading) {
+                    sendMessage(input.value.trim())
+                    input.value = ''
+                  }
+                }}
+                className="mt-3 flex items-center gap-3"
+              >
+                <input
+                  name="question"
+                  type="text"
+                  placeholder="Stelle eine Frage..."
+                  disabled={isLoading}
+                  className="flex-1 px-4 py-3 rounded-xl border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all disabled:bg-gray-50 bg-white shadow-sm"
                 />
-              </div>
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="p-3 rounded-xl text-white hover:opacity-90 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors shadow-sm"
+                  style={{ backgroundColor: primaryColor }}
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                  </svg>
+                </button>
+              </form>
             )}
           </div>
 
-          {/* Chat Interface — height locked to avatar wrapper height */}
-          <div
-            style={chatHeight > 0 ? { height: chatHeight, maxHeight: chatHeight } : undefined}
-            className="overflow-hidden"
-          >
-            <ChatInterface
-              messages={messages}
-              streamingText={streamingText}
-              isLoading={isLoading}
-              onSendMessage={sendMessage}
-            />
-          </div>
+          {/* Chat History Panel — only when toggled on */}
+          {chatVisible && isActive && (
+            <div className="lg:col-span-2 chat-panel-enter">
+              <div className="bg-white rounded-xl shadow-lg border border-gray-200 h-full flex flex-col" style={{ minHeight: '400px', maxHeight: '600px' }}>
+                {/* Chat header */}
+                <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-700">Chat-Verlauf</span>
+                  <span className="text-xs text-gray-400">{messages.length} Nachrichten</span>
+                </div>
+
+                {/* Messages */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-3" style={{ minHeight: 0 }}>
+                  {messages.length === 0 && (
+                    <div className="text-center text-gray-400 py-8">
+                      <p className="text-sm">Noch keine Nachrichten.</p>
+                    </div>
+                  )}
+
+                  {messages.map((msg, i) => (
+                    <div
+                      key={i}
+                      className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                    >
+                      <div
+                        className={`max-w-[85%] rounded-2xl px-3 py-2 ${
+                          msg.role === 'user'
+                            ? 'bg-blue-600 text-white rounded-br-md'
+                            : 'bg-gray-100 text-gray-800 rounded-bl-md'
+                        }`}
+                      >
+                        <p className="text-sm leading-relaxed">{msg.content}</p>
+                        <span className="text-xs opacity-60 mt-0.5 block">
+                          {msg.timestamp.toLocaleTimeString('de-DE', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Streaming text preview */}
+                  {streamingText && (
+                    <div className="flex justify-start">
+                      <div className="max-w-[85%] rounded-2xl rounded-bl-md px-3 py-2 bg-gray-100 text-gray-800">
+                        <p className="text-sm leading-relaxed">{streamingText}</p>
+                        <span className="inline-block w-2 h-4 bg-blue-500 animate-pulse ml-1" />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Loading indicator */}
+                  {isLoading && !streamingText && (
+                    <div className="flex justify-start">
+                      <div className="rounded-2xl rounded-bl-md px-3 py-2 bg-gray-100">
+                        <div className="animate-spin w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Language Picker Modal */}
+      {/* Language Picker Modal — initial selection */}
       {pageState === 'language_select' && tenantConfig && (
         <LanguagePicker
           supportedLanguages={tenantConfig.supported_languages}
           defaultLanguage={tenantConfig.default_language}
           onSelect={handleLanguageSelect}
+          tenantName={tenantConfig.name}
+        />
+      )}
+
+      {/* Language Picker Modal — change during session */}
+      {showLanguagePicker && tenantConfig && (
+        <LanguagePicker
+          supportedLanguages={tenantConfig.supported_languages}
+          defaultLanguage={selectedLanguage || tenantConfig.default_language}
+          onSelect={(lang) => {
+            setSelectedLanguage(lang)
+            setShowLanguagePicker(false)
+          }}
           tenantName={tenantConfig.name}
         />
       )}

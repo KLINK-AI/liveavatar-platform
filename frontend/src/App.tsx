@@ -1,5 +1,6 @@
 import { Routes, Route } from 'react-router-dom'
 import AvatarPage from './pages/AvatarPage'
+import EmbedPage from './pages/EmbedPage'
 import AdminDashboard from './pages/admin/Dashboard'
 import TenantManager from './pages/admin/TenantManager'
 import KnowledgeBasePage from './pages/admin/KnowledgeBase'
@@ -11,6 +12,9 @@ function App() {
     <Routes>
       {/* Public: Avatar widget (accessed via tenant slug) */}
       <Route path="/avatar/:tenantSlug" element={<AvatarPage />} />
+
+      {/* Embed: Lightweight player for iframe embedding */}
+      <Route path="/embed/:tenantSlug" element={<EmbedPage />} />
 
       {/* Tenant Admin (Kunden-Admin) */}
       <Route path="/tenant-admin" element={<TenantAdminDashboard />} />
