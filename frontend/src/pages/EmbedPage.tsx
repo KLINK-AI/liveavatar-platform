@@ -186,6 +186,58 @@ export default function EmbedPage() {
   const primaryColor = tenantConfig?.branding?.primary_color || '#2563eb'
   const isActive = session?.status === 'active' || session?.status === 'creating'
 
+  // Reusable chat message list (desktop)
+  const chatMessages = (
+    <>
+      {messages.map((msg, i) => (
+        <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+          <div className={`max-w-[95%] rounded-lg px-2 py-1 ${
+            msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-white text-gray-800 border border-gray-200'
+          }`}>
+            <p className="text-xs leading-relaxed">{msg.content}</p>
+          </div>
+        </div>
+      ))}
+      {streamingText && (
+        <div className="flex justify-start">
+          <div className="max-w-[95%] rounded-lg px-2 py-1 bg-white text-gray-800 border border-gray-200">
+            <p className="text-xs leading-relaxed">{streamingText}</p>
+            <span className="inline-block w-1.5 h-3 bg-blue-500 animate-pulse ml-0.5" />
+          </div>
+        </div>
+      )}
+      {isLoading && !streamingText && (
+        <div className="flex justify-start">
+          <div className="rounded-lg px-2 py-1 bg-white border border-gray-200">
+            <Loader2 className="w-3 h-3 animate-spin text-gray-400" />
+          </div>
+        </div>
+      )}
+    </>
+  )
+
+  // Mobile chat (dark theme, compact)
+  const chatMessagesMobile = (
+    <>
+      {messages.map((msg, i) => (
+        <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+          <div className={`max-w-[95%] rounded-lg px-1.5 py-0.5 ${
+            msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-white/20 text-white'
+          }`}>
+            <p className="text-[10px] leading-relaxed">{msg.content}</p>
+          </div>
+        </div>
+      ))}
+      {streamingText && (
+        <div className="flex justify-start">
+          <div className="max-w-[95%] rounded-lg px-1.5 py-0.5 bg-white/20 text-white">
+            <p className="text-[10px] leading-relaxed">{streamingText}</p>
+          </div>
+        </div>
+      )}
+    </>
+  )
+
   // --- RENDER ---
 
   if (state === 'loading') {
@@ -266,8 +318,8 @@ export default function EmbedPage() {
             </>
           )}
 
-          {/* "KI generierter Inhalt" badge — bottom-left corner */}
-          <div className="absolute bottom-2 left-2 z-10">
+          {/* "KI generierter Inhalt" badge — always visible, above controls */}
+          <div className="absolute left-2 z-30 embed-ki-badge" style={{ bottom: isActive ? '90px' : '8px' }}>
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-black/50 text-white/70 backdrop-blur-sm">
               <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" />
@@ -324,46 +376,32 @@ export default function EmbedPage() {
           )}
         </div>
 
-        {/* Chat panel — separate column to the right, doesn't cover video */}
+        {/* Chat panel — desktop: side column | mobile: overlay on video */}
         {chatVisible && isActive && (
-          <div className="w-64 flex-shrink-0 bg-gray-50 border-l border-gray-200 flex flex-col chat-panel-enter">
+          <div className="
+            hidden sm:flex
+            w-64 flex-shrink-0 bg-gray-50 border-l border-gray-200 flex-col chat-panel-enter
+          ">
             <div className="px-3 py-2 border-b border-gray-200 text-xs font-medium text-gray-600 flex-shrink-0">
               Chat-Verlauf ({messages.length})
             </div>
             <div className="flex-1 overflow-y-auto p-2 space-y-1.5" style={{ minHeight: 0 }}>
-              {messages.map((msg, i) => (
-                <div
-                  key={i}
-                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div
-                    className={`max-w-[95%] rounded-lg px-2 py-1 ${
-                      msg.role === 'user'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-white text-gray-800 border border-gray-200'
-                    }`}
-                  >
-                    <p className="text-xs leading-relaxed">{msg.content}</p>
-                  </div>
-                </div>
-              ))}
-
-              {streamingText && (
-                <div className="flex justify-start">
-                  <div className="max-w-[95%] rounded-lg px-2 py-1 bg-white text-gray-800 border border-gray-200">
-                    <p className="text-xs leading-relaxed">{streamingText}</p>
-                    <span className="inline-block w-1.5 h-3 bg-blue-500 animate-pulse ml-0.5" />
-                  </div>
-                </div>
-              )}
-
-              {isLoading && !streamingText && (
-                <div className="flex justify-start">
-                  <div className="rounded-lg px-2 py-1 bg-white border border-gray-200">
-                    <Loader2 className="w-3 h-3 animate-spin text-gray-400" />
-                  </div>
-                </div>
-              )}
+              {chatMessages}
+            </div>
+          </div>
+        )}
+        {/* Mobile chat overlay */}
+        {chatVisible && isActive && (
+          <div className="
+            sm:hidden
+            absolute right-0 top-0 bottom-24 w-48 z-30
+            bg-black/70 backdrop-blur-sm flex flex-col chat-panel-enter
+          ">
+            <div className="px-2 py-1.5 border-b border-white/10 text-[10px] font-medium text-white/70 flex-shrink-0">
+              Chat ({messages.length})
+            </div>
+            <div className="flex-1 overflow-y-auto p-1.5 space-y-1" style={{ minHeight: 0 }}>
+              {chatMessagesMobile}
             </div>
           </div>
         )}
