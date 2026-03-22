@@ -12,12 +12,14 @@ Endpoints:
 """
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import uuid
 import base64
+import re
 import structlog
 
 from database import get_db
@@ -305,6 +307,42 @@ async def get_tenant_by_slug(
         "greeting_text": tenant.greeting_text,
         "greeting_translations": tenant.greeting_translations or {},
     }
+
+
+@router.get("/by-slug/{slug}/avatar.jpg")
+async def get_tenant_avatar_image(
+    slug: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Public endpoint: serve the tenant's avatar preview image as a real image.
+    Used by widget.js bubble — img tags don't need CORS headers.
+    Returns the image with proper Content-Type, or 404 if no image exists.
+    """
+    result = await db.execute(
+        select(Tenant).where(Tenant.slug == slug, Tenant.is_active == True)
+    )
+    tenant = result.scalar_one_or_none()
+    if not tenant or not tenant.avatar_preview_image:
+        raise HTTPException(status_code=404, detail="No preview image")
+
+    data_uri = tenant.avatar_preview_image
+    # Parse data URI: data:image/jpeg;base64,/9j/4AAQ...
+    match = re.match(r"data:(image/\w+);base64,(.+)", data_uri, re.DOTALL)
+    if not match:
+        raise HTTPException(status_code=500, detail="Invalid image data")
+
+    content_type = match.group(1)
+    image_bytes = base64.b64decode(match.group(2))
+
+    return Response(
+        content=image_bytes,
+        media_type=content_type,
+        headers={
+            "Cache-Control": "public, max-age=3600",
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
 
 
 async def _auto_translate_greeting(

@@ -217,70 +217,130 @@ export default function EmbedPage() {
 
   return (
     <div className="embed-player">
-      {/* Full-height container with video + overlay controls */}
-      <div className="avatar-wrapper flex-1 relative" style={{ aspectRatio: 'auto' }}>
-        {session?.livekitUrl && session?.livekitToken ? (
-          <AvatarPlayer
-            livekitUrl={session.livekitUrl}
-            livekitToken={session.livekitToken}
-          />
-        ) : (
-          <>
-            {tenantConfig?.avatar_preview_image ? (
-              <img
-                src={tenantConfig.avatar_preview_image}
-                alt={tenantConfig.name}
-                className="w-full h-full absolute inset-0"
-                style={{ objectFit: 'cover', objectPosition: 'top center' }}
-              />
-            ) : (
-              <div className="w-full h-full bg-gradient-to-br from-gray-800 to-gray-900 absolute inset-0" />
-            )}
+      {/* Horizontal layout: video | chat panel */}
+      <div className="flex flex-1 min-h-0">
+        {/* Video area — fills available space */}
+        <div className="avatar-wrapper flex-1 relative" style={{ aspectRatio: 'auto' }}>
+          {session?.livekitUrl && session?.livekitToken ? (
+            <AvatarPlayer
+              livekitUrl={session.livekitUrl}
+              livekitToken={session.livekitToken}
+            />
+          ) : (
+            <>
+              {tenantConfig?.avatar_preview_image ? (
+                <img
+                  src={tenantConfig.avatar_preview_image}
+                  alt={tenantConfig.name}
+                  className="w-full h-full absolute inset-0"
+                  style={{ objectFit: 'cover', objectPosition: 'top center' }}
+                />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-br from-gray-800 to-gray-900 absolute inset-0" />
+              )}
 
-            {state === 'preview' && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+              {state === 'preview' && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                  <button
+                    onClick={() => {
+                      setState('connecting')
+                      startSession(selectedLanguage || 'de')
+                    }}
+                    className="flex items-center gap-2 px-6 py-3 rounded-xl text-white font-medium shadow-lg transition-all hover:scale-105 active:scale-95"
+                    style={{ backgroundColor: primaryColor }}
+                  >
+                    <Play className="w-5 h-5" />
+                    Starten
+                  </button>
+                </div>
+              )}
+
+              {state === 'connecting' && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                  <div className="text-center text-white">
+                    <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" />
+                    <p className="text-sm">Wird geladen...</p>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* "KI generierter Inhalt" badge — bottom-left corner */}
+          <div className="absolute bottom-2 left-2 z-10">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-black/50 text-white/70 backdrop-blur-sm">
+              <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" />
+              </svg>
+              KI generierter Inhalt
+            </span>
+          </div>
+
+          {/* Control bar + input — overlays bottom of video */}
+          {isActive && (
+            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/50 to-transparent pt-8 z-20">
+              <PlayerControlBar
+                onTranscript={sendMessage}
+                disabled={isLoading || avatarSpeaking}
+                avatarSpeaking={avatarSpeaking}
+                language={selectedLanguage || tenantConfig?.default_language || 'de'}
+                chatVisible={chatVisible}
+                onToggleChat={() => setChatVisible(v => !v)}
+                showLanguageButton={(tenantConfig?.supported_languages?.length || 0) > 1}
+                primaryColor={primaryColor}
+              />
+
+              {/* Compact text input */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  const input = (e.target as HTMLFormElement).elements.namedItem('question') as HTMLInputElement
+                  if (input.value.trim() && !isLoading) {
+                    sendMessage(input.value.trim())
+                    input.value = ''
+                  }
+                }}
+                className="flex items-center gap-2 px-3 pb-3"
+              >
+                <input
+                  name="question"
+                  type="text"
+                  placeholder="Frage eingeben..."
+                  disabled={isLoading}
+                  className="flex-1 px-3 py-2 rounded-lg border border-white/20 bg-black/40 text-white text-sm focus:border-blue-400 focus:ring-1 focus:ring-blue-400 outline-none disabled:opacity-50 placeholder-gray-400 backdrop-blur-sm"
+                />
                 <button
-                  onClick={() => {
-                    setState('connecting')
-                    startSession(selectedLanguage || 'de')
-                  }}
-                  className="flex items-center gap-2 px-6 py-3 rounded-xl text-white font-medium shadow-lg transition-all hover:scale-105 active:scale-95"
+                  type="submit"
+                  disabled={isLoading}
+                  className="p-2 rounded-lg text-white disabled:opacity-50 transition-colors"
                   style={{ backgroundColor: primaryColor }}
                 >
-                  <Play className="w-5 h-5" />
-                  Starten
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                  </svg>
                 </button>
-              </div>
-            )}
+              </form>
+            </div>
+          )}
+        </div>
 
-            {state === 'connecting' && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-                <div className="text-center text-white">
-                  <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" />
-                  <p className="text-sm">Wird geladen...</p>
-                </div>
-              </div>
-            )}
-          </>
-        )}
-
-        {/* Chat overlay (slides in from right) */}
+        {/* Chat panel — separate column to the right, doesn't cover video */}
         {chatVisible && isActive && (
-          <div className="absolute right-0 top-0 bottom-0 w-72 bg-white/95 backdrop-blur-sm shadow-lg flex flex-col chat-panel-enter">
-            <div className="px-3 py-2 border-b border-gray-200 text-xs font-medium text-gray-600">
+          <div className="w-64 flex-shrink-0 bg-gray-50 border-l border-gray-200 flex flex-col chat-panel-enter">
+            <div className="px-3 py-2 border-b border-gray-200 text-xs font-medium text-gray-600 flex-shrink-0">
               Chat-Verlauf ({messages.length})
             </div>
-            <div className="flex-1 overflow-y-auto p-3 space-y-2" style={{ minHeight: 0 }}>
+            <div className="flex-1 overflow-y-auto p-2 space-y-1.5" style={{ minHeight: 0 }}>
               {messages.map((msg, i) => (
                 <div
                   key={i}
                   className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
                   <div
-                    className={`max-w-[90%] rounded-xl px-2.5 py-1.5 ${
+                    className={`max-w-[95%] rounded-lg px-2 py-1 ${
                       msg.role === 'user'
                         ? 'bg-blue-600 text-white'
-                        : 'bg-gray-100 text-gray-800'
+                        : 'bg-white text-gray-800 border border-gray-200'
                     }`}
                   >
                     <p className="text-xs leading-relaxed">{msg.content}</p>
@@ -290,7 +350,7 @@ export default function EmbedPage() {
 
               {streamingText && (
                 <div className="flex justify-start">
-                  <div className="max-w-[90%] rounded-xl px-2.5 py-1.5 bg-gray-100 text-gray-800">
+                  <div className="max-w-[95%] rounded-lg px-2 py-1 bg-white text-gray-800 border border-gray-200">
                     <p className="text-xs leading-relaxed">{streamingText}</p>
                     <span className="inline-block w-1.5 h-3 bg-blue-500 animate-pulse ml-0.5" />
                   </div>
@@ -299,59 +359,12 @@ export default function EmbedPage() {
 
               {isLoading && !streamingText && (
                 <div className="flex justify-start">
-                  <div className="rounded-xl px-2.5 py-1.5 bg-gray-100">
+                  <div className="rounded-lg px-2 py-1 bg-white border border-gray-200">
                     <Loader2 className="w-3 h-3 animate-spin text-gray-400" />
                   </div>
                 </div>
               )}
             </div>
-          </div>
-        )}
-
-        {/* Control bar + input — overlays bottom of video */}
-        {isActive && (
-          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/50 to-transparent pt-8">
-            <PlayerControlBar
-              onTranscript={sendMessage}
-              disabled={isLoading || avatarSpeaking}
-              avatarSpeaking={avatarSpeaking}
-              language={selectedLanguage || tenantConfig?.default_language || 'de'}
-              chatVisible={chatVisible}
-              onToggleChat={() => setChatVisible(v => !v)}
-              showLanguageButton={(tenantConfig?.supported_languages?.length || 0) > 1}
-              primaryColor={primaryColor}
-            />
-
-            {/* Compact text input */}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault()
-                const input = (e.target as HTMLFormElement).elements.namedItem('question') as HTMLInputElement
-                if (input.value.trim() && !isLoading) {
-                  sendMessage(input.value.trim())
-                  input.value = ''
-                }
-              }}
-              className="flex items-center gap-2 px-3 pb-3"
-            >
-              <input
-                name="question"
-                type="text"
-                placeholder="Frage eingeben..."
-                disabled={isLoading}
-                className="flex-1 px-3 py-2 rounded-lg border border-white/20 bg-black/40 text-white text-sm focus:border-blue-400 focus:ring-1 focus:ring-blue-400 outline-none disabled:opacity-50 placeholder-gray-400 backdrop-blur-sm"
-              />
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="p-2 rounded-lg text-white disabled:opacity-50 transition-colors"
-                style={{ backgroundColor: primaryColor }}
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                </svg>
-              </button>
-            </form>
           </div>
         )}
       </div>

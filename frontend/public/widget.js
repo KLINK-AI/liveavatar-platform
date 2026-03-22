@@ -191,19 +191,28 @@
       bubble.className = 'la-widget-bubble';
       bubble.setAttribute('aria-label', bubbleText);
 
-      // Avatar image placeholder (will be replaced when tenant data loads)
-      var avatarEl = document.createElement('div');
-      avatarEl.className = 'la-bubble-avatar-fallback';
-      avatarEl.innerHTML =
-        '<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
-        '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>' +
-        '</svg>';
+      // Avatar image — loaded directly as <img> from the backend image endpoint
+      // (img tags don't need CORS, so this works from any customer domain)
+      var avatarImg = document.createElement('img');
+      avatarImg.className = 'la-bubble-avatar';
+      avatarImg.src = origin + '/api/v1/tenants/by-slug/' + tenantSlug + '/avatar.jpg';
+      avatarImg.alt = 'Avatar';
+      avatarImg.onerror = function () {
+        // Fallback to chat icon if image fails
+        var fallback = document.createElement('div');
+        fallback.className = 'la-bubble-avatar-fallback';
+        fallback.innerHTML =
+          '<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+          '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>' +
+          '</svg>';
+        bubble.replaceChild(fallback, avatarImg);
+      };
 
       var label = document.createElement('span');
       label.className = 'la-bubble-label';
       label.textContent = bubbleText;
 
-      bubble.appendChild(avatarEl);
+      bubble.appendChild(avatarImg);
       bubble.appendChild(label);
 
       // -------- Modal --------
@@ -306,7 +315,7 @@
       document.body.appendChild(bubble);
       document.body.appendChild(modal);
 
-      // -------- Load tenant data for name + preview image --------
+      // -------- Load tenant name for header --------
       try {
         var xhr = new XMLHttpRequest();
         xhr.open('GET', origin + '/api/v1/tenants/slug/' + tenantSlug, true);
@@ -316,18 +325,6 @@
             if (data.name) {
               tenantName = data.name;
               title.textContent = data.name;
-            }
-            if (data.avatar_preview_image) {
-              previewImageUrl = data.avatar_preview_image;
-              // Replace fallback circle with actual avatar image
-              var img = document.createElement('img');
-              img.className = 'la-bubble-avatar';
-              img.src = previewImageUrl;
-              img.alt = tenantName || 'Avatar';
-              img.onerror = function () {
-                // Keep fallback if image fails
-              };
-              bubble.replaceChild(img, avatarEl);
             }
           }
         };
