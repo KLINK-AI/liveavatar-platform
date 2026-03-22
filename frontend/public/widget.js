@@ -27,7 +27,7 @@
       var tenantSlug = opts.tenantSlug || '';
       var position = opts.position || 'bottom-right';
       var primaryColor = opts.primaryColor || '#2563eb';
-      var bubbleText = opts.bubbleText || 'Chat starten';
+      var bubbleText = opts.bubbleText || 'Avatar starten';
       var origin = opts.serverUrl || defaultOrigin || 'https://liveavatar.klink-io.cloud';
 
       if (!tenantSlug) {

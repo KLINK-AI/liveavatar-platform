@@ -34,6 +34,7 @@ body {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: top center;
 }
 
 /* Chat interface styles — fills its parent exactly, no expanding */
@@ -117,16 +118,16 @@ body {
 .embed-player .player-control-bar {
   border-radius: 0;
   border: none;
-  border-top: 1px solid #333;
-  background: #1a1a1a;
+  background: transparent;
 }
 
 .embed-player .control-btn {
-  background: #333;
-  color: #ccc;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(4px);
+  color: #eee;
 }
 
 .embed-player .control-btn:hover {
-  background: #444;
+  background: rgba(255, 255, 255, 0.3);
   color: #fff;
 }

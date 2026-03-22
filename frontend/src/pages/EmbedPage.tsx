@@ -217,8 +217,8 @@ export default function EmbedPage() {
 
   return (
     <div className="embed-player">
-      {/* Avatar area — fills available space */}
-      <div className="avatar-wrapper flex-1" style={{ aspectRatio: 'auto' }}>
+      {/* Full-height container with video + overlay controls */}
+      <div className="avatar-wrapper flex-1 relative" style={{ aspectRatio: 'auto' }}>
         {session?.livekitUrl && session?.livekitToken ? (
           <AvatarPlayer
             livekitUrl={session.livekitUrl}
@@ -230,7 +230,8 @@ export default function EmbedPage() {
               <img
                 src={tenantConfig.avatar_preview_image}
                 alt={tenantConfig.name}
-                className="w-full h-full object-cover absolute inset-0"
+                className="w-full h-full absolute inset-0"
+                style={{ objectFit: 'cover', objectPosition: 'top center' }}
               />
             ) : (
               <div className="w-full h-full bg-gradient-to-br from-gray-800 to-gray-900 absolute inset-0" />
@@ -306,54 +307,54 @@ export default function EmbedPage() {
             </div>
           </div>
         )}
-      </div>
 
-      {/* Control bar + input */}
-      {isActive && (
-        <div className="bg-[#1a1a1a] border-t border-gray-700">
-          <PlayerControlBar
-            onTranscript={sendMessage}
-            disabled={isLoading || avatarSpeaking}
-            avatarSpeaking={avatarSpeaking}
-            language={selectedLanguage || tenantConfig?.default_language || 'de'}
-            chatVisible={chatVisible}
-            onToggleChat={() => setChatVisible(v => !v)}
-            showLanguageButton={(tenantConfig?.supported_languages?.length || 0) > 1}
-            primaryColor={primaryColor}
-          />
-
-          {/* Compact text input */}
-          <form
-            onSubmit={(e) => {
-              e.preventDefault()
-              const input = (e.target as HTMLFormElement).elements.namedItem('question') as HTMLInputElement
-              if (input.value.trim() && !isLoading) {
-                sendMessage(input.value.trim())
-                input.value = ''
-              }
-            }}
-            className="flex items-center gap-2 px-3 pb-3"
-          >
-            <input
-              name="question"
-              type="text"
-              placeholder="Frage eingeben..."
-              disabled={isLoading}
-              className="flex-1 px-3 py-2 rounded-lg border border-gray-600 bg-gray-800 text-white text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none disabled:opacity-50 placeholder-gray-500"
+        {/* Control bar + input — overlays bottom of video */}
+        {isActive && (
+          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/50 to-transparent pt-8">
+            <PlayerControlBar
+              onTranscript={sendMessage}
+              disabled={isLoading || avatarSpeaking}
+              avatarSpeaking={avatarSpeaking}
+              language={selectedLanguage || tenantConfig?.default_language || 'de'}
+              chatVisible={chatVisible}
+              onToggleChat={() => setChatVisible(v => !v)}
+              showLanguageButton={(tenantConfig?.supported_languages?.length || 0) > 1}
+              primaryColor={primaryColor}
             />
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="p-2 rounded-lg text-white disabled:opacity-50 transition-colors"
-              style={{ backgroundColor: primaryColor }}
+
+            {/* Compact text input */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                const input = (e.target as HTMLFormElement).elements.namedItem('question') as HTMLInputElement
+                if (input.value.trim() && !isLoading) {
+                  sendMessage(input.value.trim())
+                  input.value = ''
+                }
+              }}
+              className="flex items-center gap-2 px-3 pb-3"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-              </svg>
-            </button>
-          </form>
-        </div>
-      )}
+              <input
+                name="question"
+                type="text"
+                placeholder="Frage eingeben..."
+                disabled={isLoading}
+                className="flex-1 px-3 py-2 rounded-lg border border-white/20 bg-black/40 text-white text-sm focus:border-blue-400 focus:ring-1 focus:ring-blue-400 outline-none disabled:opacity-50 placeholder-gray-400 backdrop-blur-sm"
+              />
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="p-2 rounded-lg text-white disabled:opacity-50 transition-colors"
+                style={{ backgroundColor: primaryColor }}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+              </button>
+            </form>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

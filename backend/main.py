@@ -42,11 +42,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS
+# CORS — allow all origins so the widget.js can be embedded on any customer website.
+# Note: allow_credentials must be False when using wildcard origins (browser spec).
+# The API uses Bearer tokens (not cookies), so credentials are not needed.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
