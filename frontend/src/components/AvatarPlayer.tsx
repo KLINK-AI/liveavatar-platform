@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react'
 import {
   LiveKitRoom,
   VideoTrack,
-  AudioTrack,
+  RoomAudioRenderer,
   useRemoteParticipants,
   useTracks,
 } from '@livekit/components-react'
@@ -22,13 +22,10 @@ interface AvatarPlayerProps {
 }
 
 function AvatarVideoTrack() {
-  const tracks = useTracks([Track.Source.Camera, Track.Source.Microphone])
+  const tracks = useTracks([Track.Source.Camera])
 
   const videoTrack = tracks.find(
     (t) => t.source === Track.Source.Camera && t.publication.track
-  )
-  const audioTrack = tracks.find(
-    (t) => t.source === Track.Source.Microphone && t.publication.track
   )
 
   if (!videoTrack) {
@@ -43,13 +40,10 @@ function AvatarVideoTrack() {
   }
 
   return (
-    <>
-      <VideoTrack
-        trackRef={videoTrack}
-        style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center' }}
-      />
-      {audioTrack && <AudioTrack trackRef={audioTrack} />}
-    </>
+    <VideoTrack
+      trackRef={videoTrack}
+      style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center' }}
+    />
   )
 }
 
@@ -79,6 +73,8 @@ export default function AvatarPlayer({
         style={{ height: '100%' }}
       >
         <AvatarVideoTrack />
+        {/* RoomAudioRenderer handles all remote audio tracks, including iOS autoplay */}
+        <RoomAudioRenderer />
 
         {/* Connection status indicator */}
         <div className="absolute top-3 right-3">
