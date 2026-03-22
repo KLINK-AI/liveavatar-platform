@@ -109,10 +109,23 @@ body {
   background: #000;
 }
 
-.embed-player .avatar-wrapper {
-  flex: 1;
-  aspect-ratio: auto;
-  border-radius: 0;
+/* Desktop: video fills all available space */
+@media (min-width: 640px) {
+  .embed-player .avatar-wrapper {
+    flex: 1;
+    aspect-ratio: auto;
+    border-radius: 0;
+  }
+}
+
+/* Mobile: video gets fixed 16:9 aspect ratio at top, does NOT stretch */
+@media (max-width: 639px) {
+  .embed-player .avatar-wrapper.embed-video-mobile {
+    flex: none;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border-radius: 0;
+  }
 }
 
 .embed-player .player-control-bar {
