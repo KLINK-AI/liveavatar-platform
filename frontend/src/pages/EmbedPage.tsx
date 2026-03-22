@@ -251,7 +251,7 @@ export default function EmbedPage() {
       {/* Desktop: horizontal (video | chat). Mobile: vertical (video on top, chat below) */}
       <div className="flex flex-col sm:flex-row flex-1 min-h-0">
         {/* Video area — on mobile: fixed aspect-ratio at top. On desktop: fills available space */}
-        <div className="avatar-wrapper relative sm:flex-1 embed-video-mobile" style={{ aspectRatio: 'auto' }}>
+        <div className="avatar-wrapper relative sm:flex-1 embed-video-mobile">
           {session?.livekitUrl && session?.livekitToken ? (
             <AvatarPlayer
               livekitUrl={session.livekitUrl}
