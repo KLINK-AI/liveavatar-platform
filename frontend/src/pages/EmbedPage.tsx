@@ -116,6 +116,11 @@ export default function EmbedPage() {
       setSession(newSession)
       setState('active')
 
+      // Notify parent widget that session is active
+      if (window.parent !== window) {
+        window.parent.postMessage('liveavatar-session-started', '*')
+      }
+
       keepAliveRef.current = setInterval(async () => {
         try {
           await sessionApi.keepAlive(newSession.sessionId, tenantConfig.api_key)
@@ -129,6 +134,36 @@ export default function EmbedPage() {
       setState('error')
     }
   }, [tenantConfig])
+
+  // Stop session handler (can be called from widget via postMessage)
+  const stopSession = useCallback(async () => {
+    if (keepAliveRef.current) {
+      clearInterval(keepAliveRef.current)
+      keepAliveRef.current = null
+    }
+    if (session && tenantConfig) {
+      try { await sessionApi.stop(session.sessionId, tenantConfig.api_key) } catch (_) {}
+    }
+    setSession(null)
+    sessionStartedRef.current = false
+    setChatVisible(false)
+    setState('preview')
+    // Notify parent widget
+    if (window.parent !== window) {
+      window.parent.postMessage('liveavatar-session-ended', '*')
+    }
+  }, [session, tenantConfig])
+
+  // Listen for messages from parent widget
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      if (event.data === 'liveavatar-end-session') {
+        stopSession()
+      }
+    }
+    window.addEventListener('message', handler)
+    return () => window.removeEventListener('message', handler)
+  }, [stopSession])
 
   // Cleanup
   useEffect(() => {

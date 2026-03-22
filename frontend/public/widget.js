@@ -1,20 +1,21 @@
 /**
- * LiveAvatar Widget — Bubble + Modal
+ * LiveAvatar Widget — Bubble + Modal (Landscape)
  *
- * Drop-in script for customer websites. Creates a floating chat button
- * that opens a modal with the avatar player (via iframe to /embed/:slug).
+ * Drop-in script for customer websites. Creates a floating avatar preview
+ * button that opens a landscape modal with the avatar player (via iframe).
  *
  * Usage:
  *   LiveAvatarWidget.init({
  *     tenantSlug: 'buettelborn',
  *     position: 'bottom-right',   // or 'bottom-left'
- *     primaryColor: '#2563eb'
+ *     primaryColor: '#2563eb',
+ *     bubbleText: 'Chat starten'  // optional
  *   });
  */
 (function () {
   'use strict';
 
-  // Determine origin from the script src so it works on any customer domain
+  // Determine origin from the script src
   var scripts = document.getElementsByTagName('script');
   var currentScript = scripts[scripts.length - 1];
   var scriptSrc = currentScript && currentScript.src ? currentScript.src : '';
@@ -26,6 +27,7 @@
       var tenantSlug = opts.tenantSlug || '';
       var position = opts.position || 'bottom-right';
       var primaryColor = opts.primaryColor || '#2563eb';
+      var bubbleText = opts.bubbleText || 'Chat starten';
       var origin = opts.serverUrl || defaultOrigin || 'https://liveavatar.klink-io.cloud';
 
       if (!tenantSlug) {
@@ -35,38 +37,76 @@
 
       var isRight = position.indexOf('right') !== -1;
       var isOpen = false;
+      var sessionActive = false;
+      var tenantName = '';
+      var previewImageUrl = '';
 
       // -------- Styles --------
       var style = document.createElement('style');
       style.textContent = [
+        /* --- Bubble: avatar image + text label --- */
         '.la-widget-bubble {',
         '  position: fixed;',
-        '  ' + (isRight ? 'right: 24px;' : 'left: 24px;'),
-        '  bottom: 24px;',
-        '  width: 60px;',
-        '  height: 60px;',
+        '  ' + (isRight ? 'right: 20px;' : 'left: 20px;'),
+        '  bottom: 20px;',
+        '  display: flex;',
+        '  align-items: center;',
+        '  gap: 0;',
+        '  cursor: pointer;',
+        '  z-index: 2147483646;',
+        '  transition: transform 0.2s ease;',
+        '  border: none;',
+        '  background: none;',
+        '  padding: 0;',
+        '  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;',
+        '}',
+        '.la-widget-bubble:hover { transform: scale(1.05); }',
+        '',
+        '.la-bubble-avatar {',
+        '  width: 64px;',
+        '  height: 64px;',
+        '  border-radius: 50%;',
+        '  object-fit: cover;',
+        '  border: 3px solid ' + primaryColor + ';',
+        '  box-shadow: 0 4px 16px rgba(0,0,0,0.2);',
+        '  flex-shrink: 0;',
+        '}',
+        '.la-bubble-avatar-fallback {',
+        '  width: 64px;',
+        '  height: 64px;',
         '  border-radius: 50%;',
         '  background: ' + primaryColor + ';',
-        '  border: none;',
-        '  cursor: pointer;',
         '  display: flex;',
         '  align-items: center;',
         '  justify-content: center;',
-        '  box-shadow: 0 4px 20px rgba(0,0,0,0.2);',
-        '  z-index: 2147483646;',
-        '  transition: transform 0.2s ease, opacity 0.2s ease;',
+        '  border: 3px solid ' + primaryColor + ';',
+        '  box-shadow: 0 4px 16px rgba(0,0,0,0.2);',
+        '  flex-shrink: 0;',
         '}',
-        '.la-widget-bubble:hover { transform: scale(1.1); }',
-        '.la-widget-bubble svg { width: 28px; height: 28px; }',
+        '.la-bubble-avatar-fallback svg { width: 28px; height: 28px; }',
         '',
+        '.la-bubble-label {',
+        '  background: ' + primaryColor + ';',
+        '  color: #fff;',
+        '  padding: 6px 14px 6px 10px;',
+        '  border-radius: 0 20px 20px 0;',
+        '  font-size: 13px;',
+        '  font-weight: 600;',
+        '  white-space: nowrap;',
+        '  box-shadow: 0 2px 8px rgba(0,0,0,0.15);',
+        '  margin-left: -6px;',
+        '  line-height: 1.3;',
+        '}',
+        '',
+        /* --- Modal: landscape layout --- */
         '.la-widget-modal {',
         '  position: fixed;',
-        '  ' + (isRight ? 'right: 24px;' : 'left: 24px;'),
-        '  bottom: 24px;',
-        '  width: 400px;',
-        '  height: 600px;',
-        '  max-height: calc(100vh - 48px);',
-        '  max-width: calc(100vw - 48px);',
+        '  ' + (isRight ? 'right: 20px;' : 'left: 20px;'),
+        '  bottom: 20px;',
+        '  width: 720px;',
+        '  height: 460px;',
+        '  max-width: calc(100vw - 40px);',
+        '  max-height: calc(100vh - 40px);',
         '  border: none;',
         '  border-radius: 16px;',
         '  overflow: hidden;',
@@ -74,7 +114,7 @@
         '  z-index: 2147483647;',
         '  display: none;',
         '  flex-direction: column;',
-        '  background: #fff;',
+        '  background: #000;',
         '  animation: laWidgetSlideUp 0.3s ease;',
         '}',
         '.la-widget-modal.la-open { display: flex; }',
@@ -88,27 +128,41 @@
         '  display: flex;',
         '  align-items: center;',
         '  justify-content: space-between;',
-        '  padding: 10px 14px;',
+        '  padding: 8px 14px;',
         '  background: ' + primaryColor + ';',
         '  color: #fff;',
         '  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;',
         '  font-size: 14px;',
         '  font-weight: 600;',
+        '  flex-shrink: 0;',
         '}',
-        '.la-widget-header-btns { display: flex; gap: 4px; }',
+        '.la-widget-header-btns { display: flex; gap: 2px; align-items: center; }',
         '.la-widget-header-btns button {',
         '  background: transparent;',
         '  border: none;',
         '  color: #fff;',
         '  cursor: pointer;',
-        '  padding: 4px;',
-        '  border-radius: 4px;',
+        '  padding: 5px 8px;',
+        '  border-radius: 6px;',
         '  display: flex;',
         '  align-items: center;',
         '  justify-content: center;',
+        '  font-family: inherit;',
+        '  font-size: 12px;',
+        '  gap: 4px;',
         '}',
         '.la-widget-header-btns button:hover { background: rgba(255,255,255,0.2); }',
         '.la-widget-header-btns svg { width: 16px; height: 16px; }',
+        '',
+        '.la-end-session-btn {',
+        '  background: rgba(255,255,255,0.15) !important;',
+        '  border: 1px solid rgba(255,255,255,0.3) !important;',
+        '  padding: 4px 10px !important;',
+        '  border-radius: 6px !important;',
+        '  font-size: 11px !important;',
+        '  margin-right: 4px;',
+        '}',
+        '.la-end-session-btn:hover { background: rgba(255,60,60,0.6) !important; }',
         '',
         '.la-widget-iframe {',
         '  flex: 1;',
@@ -117,7 +171,8 @@
         '  height: 100%;',
         '}',
         '',
-        '@media (max-width: 480px) {',
+        /* --- Mobile: full screen --- */
+        '@media (max-width: 760px) {',
         '  .la-widget-modal {',
         '    width: 100vw;',
         '    height: 100vh;',
@@ -131,14 +186,25 @@
       ].join('\n');
       document.head.appendChild(style);
 
-      // -------- Bubble Button --------
+      // -------- Bubble Button (avatar image + label) --------
       var bubble = document.createElement('button');
       bubble.className = 'la-widget-bubble';
-      bubble.setAttribute('aria-label', 'Avatar starten');
-      bubble.innerHTML =
+      bubble.setAttribute('aria-label', bubbleText);
+
+      // Avatar image placeholder (will be replaced when tenant data loads)
+      var avatarEl = document.createElement('div');
+      avatarEl.className = 'la-bubble-avatar-fallback';
+      avatarEl.innerHTML =
         '<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
         '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>' +
         '</svg>';
+
+      var label = document.createElement('span');
+      label.className = 'la-bubble-label';
+      label.textContent = bubbleText;
+
+      bubble.appendChild(avatarEl);
+      bubble.appendChild(label);
 
       // -------- Modal --------
       var modal = document.createElement('div');
@@ -154,6 +220,18 @@
       var headerBtns = document.createElement('div');
       headerBtns.className = 'la-widget-header-btns';
 
+      // "Session beenden" button (hidden until session is active)
+      var endBtn = document.createElement('button');
+      endBtn.className = 'la-end-session-btn';
+      endBtn.setAttribute('aria-label', 'Session beenden');
+      endBtn.innerHTML =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;">' +
+        '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>' +
+        '</svg>' +
+        '<span>Beenden</span>';
+      endBtn.style.display = 'none';
+
+      // Close (X) button
       var closeBtn = document.createElement('button');
       closeBtn.setAttribute('aria-label', 'Schließen');
       closeBtn.innerHTML =
@@ -161,25 +239,24 @@
         '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>' +
         '</svg>';
 
+      headerBtns.appendChild(endBtn);
       headerBtns.appendChild(closeBtn);
       header.appendChild(title);
       header.appendChild(headerBtns);
       modal.appendChild(header);
 
-      // iFrame (embed page)
+      // iFrame (embed page — NO ?chat=1, chat is hidden by default)
       var iframe = document.createElement('iframe');
       iframe.className = 'la-widget-iframe';
       iframe.setAttribute('allow', 'microphone; camera; autoplay');
       iframe.setAttribute('title', 'LiveAvatar Widget');
-      // Don't load yet — load on open
       modal.appendChild(iframe);
 
-      var embedUrl = origin + '/embed/' + tenantSlug + '?chat=1';
+      var embedUrl = origin + '/embed/' + tenantSlug;
 
       // -------- Toggle logic --------
       function openWidget() {
         isOpen = true;
-        // Load iframe on first open
         if (!iframe.src) {
           iframe.src = embedUrl;
         }
@@ -193,13 +270,35 @@
         bubble.style.display = 'flex';
       }
 
+      function endSession() {
+        // Send message to iframe to stop session
+        if (iframe.contentWindow) {
+          iframe.contentWindow.postMessage('liveavatar-end-session', '*');
+        }
+        // Reset iframe to reload fresh
+        var currentSrc = iframe.src;
+        iframe.src = '';
+        iframe.src = currentSrc;
+        sessionActive = false;
+        endBtn.style.display = 'none';
+      }
+
       bubble.addEventListener('click', openWidget);
       closeBtn.addEventListener('click', closeWidget);
+      endBtn.addEventListener('click', endSession);
 
-      // Listen for close messages from the iframe
+      // Listen for messages from the iframe
       window.addEventListener('message', function (event) {
         if (event.data === 'liveavatar-close') {
           closeWidget();
+        }
+        if (event.data === 'liveavatar-session-started') {
+          sessionActive = true;
+          endBtn.style.display = 'flex';
+        }
+        if (event.data === 'liveavatar-session-ended') {
+          sessionActive = false;
+          endBtn.style.display = 'none';
         }
       });
 
@@ -207,19 +306,34 @@
       document.body.appendChild(bubble);
       document.body.appendChild(modal);
 
-      // Try to fetch tenant name for the header
+      // -------- Load tenant data for name + preview image --------
       try {
         var xhr = new XMLHttpRequest();
         xhr.open('GET', origin + '/api/v1/tenants/slug/' + tenantSlug, true);
         xhr.onload = function () {
           if (xhr.status === 200) {
             var data = JSON.parse(xhr.responseText);
-            if (data.name) title.textContent = data.name;
+            if (data.name) {
+              tenantName = data.name;
+              title.textContent = data.name;
+            }
+            if (data.avatar_preview_image) {
+              previewImageUrl = data.avatar_preview_image;
+              // Replace fallback circle with actual avatar image
+              var img = document.createElement('img');
+              img.className = 'la-bubble-avatar';
+              img.src = previewImageUrl;
+              img.alt = tenantName || 'Avatar';
+              img.onerror = function () {
+                // Keep fallback if image fails
+              };
+              bubble.replaceChild(img, avatarEl);
+            }
           }
         };
         xhr.send();
       } catch (e) {
-        // Silently ignore — fallback title is fine
+        // Silently ignore — fallback appearance is fine
       }
     },
   };
