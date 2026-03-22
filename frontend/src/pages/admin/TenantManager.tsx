@@ -9,8 +9,9 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, Pencil, Database, ArrowLeft, X, Check, Upload, Globe, MessageSquare } from 'lucide-react'
+import { Plus, Pencil, Database, ArrowLeft, X, Check, Upload, Globe, MessageSquare, Code } from 'lucide-react'
 import { tenantApi } from '../../lib/api'
+import EmbedCodeGenerator from '../../components/EmbedCodeGenerator'
 
 const API_BASE = '/api/v1'
 
@@ -86,6 +87,7 @@ export default function TenantManager() {
   const [saving, setSaving] = useState(false)
   const [uploadingImage, setUploadingImage] = useState(false)
   const [translating, setTranslating] = useState(false)
+  const [embedOpenFor, setEmbedOpenFor] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -495,6 +497,7 @@ export default function TenantManager() {
                   className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 outline-none"
                 >
                   <option value="openai">OpenAI</option>
+                  <option value="groq">Groq (LPU)</option>
                   <option value="anthropic">Anthropic (Claude)</option>
                   <option value="ollama">Ollama (Lokal)</option>
                 </select>
@@ -688,6 +691,16 @@ export default function TenantManager() {
                   >
                     Kunden-Admin
                   </button>
+                  <button
+                    onClick={() => setEmbedOpenFor(embedOpenFor === tenant.id ? null : tenant.id)}
+                    className={`flex items-center gap-1 px-3 py-2 text-sm rounded-lg border ${
+                      embedOpenFor === tenant.id
+                        ? 'text-green-700 bg-green-50 border-green-300'
+                        : 'text-green-600 hover:bg-green-50 border-green-200'
+                    }`}
+                  >
+                    <Code className="w-4 h-4" /> Embed Code
+                  </button>
                   <Link
                     to={`/avatar/${tenant.slug}`}
                     className="flex items-center gap-1 px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-200"
@@ -696,6 +709,17 @@ export default function TenantManager() {
                   </Link>
                 </div>
               </div>
+
+              {/* Embed Code Section (expandable) */}
+              {embedOpenFor === tenant.id && (
+                <div className="mt-4 pt-4 border-t border-gray-100">
+                  <EmbedCodeGenerator
+                    tenantSlug={tenant.slug}
+                    tenantName={tenant.name}
+                    primaryColor={tenant.branding?.primary_color}
+                  />
+                </div>
+              )}
             </div>
           ))}
         </div>
