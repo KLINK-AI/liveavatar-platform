@@ -131,7 +131,7 @@ export default function LanguagePicker({
 
         {/* Language Grid */}
         <div className="px-6 pb-6 max-h-[50vh] overflow-y-auto">
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-4 gap-2">
             {filteredLanguages.map((code) => {
               const data = LANGUAGE_DATA[code]
               if (!data) return null

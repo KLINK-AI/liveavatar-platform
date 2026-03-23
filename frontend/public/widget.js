@@ -229,17 +229,6 @@
       var headerBtns = document.createElement('div');
       headerBtns.className = 'la-widget-header-btns';
 
-      // "Session beenden" button (hidden until session is active)
-      var endBtn = document.createElement('button');
-      endBtn.className = 'la-end-session-btn';
-      endBtn.setAttribute('aria-label', 'Session beenden');
-      endBtn.innerHTML =
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;">' +
-        '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>' +
-        '</svg>' +
-        '<span>Beenden</span>';
-      endBtn.style.display = 'none';
-
       // Close (X) button
       var closeBtn = document.createElement('button');
       closeBtn.setAttribute('aria-label', 'Schließen');
@@ -248,7 +237,6 @@
         '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>' +
         '</svg>';
 
-      headerBtns.appendChild(endBtn);
       headerBtns.appendChild(closeBtn);
       header.appendChild(title);
       header.appendChild(headerBtns);
@@ -279,22 +267,8 @@
         bubble.style.display = 'flex';
       }
 
-      function endSession() {
-        // Send message to iframe to stop session
-        if (iframe.contentWindow) {
-          iframe.contentWindow.postMessage('liveavatar-end-session', '*');
-        }
-        // Reset iframe to reload fresh
-        var currentSrc = iframe.src;
-        iframe.src = '';
-        iframe.src = currentSrc;
-        sessionActive = false;
-        endBtn.style.display = 'none';
-      }
-
       bubble.addEventListener('click', openWidget);
       closeBtn.addEventListener('click', closeWidget);
-      endBtn.addEventListener('click', endSession);
 
       // Listen for messages from the iframe
       window.addEventListener('message', function (event) {
@@ -303,11 +277,9 @@
         }
         if (event.data === 'liveavatar-session-started') {
           sessionActive = true;
-          endBtn.style.display = 'flex';
         }
         if (event.data === 'liveavatar-session-ended') {
           sessionActive = false;
-          endBtn.style.display = 'none';
         }
       });
 

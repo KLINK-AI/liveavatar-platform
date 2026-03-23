@@ -25,6 +25,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import AvatarPlayer from '../components/AvatarPlayer'
 import PlayerControlBar from '../components/PlayerControlBar'
+import LanguagePicker from '../components/LanguagePicker'
 import { useConversation } from '../hooks/useConversation'
 import { tenantApi, sessionApi } from '../lib/api'
 import { Play, Loader2, Square } from 'lucide-react'
@@ -53,7 +54,7 @@ interface AvatarSession {
   status: string
 }
 
-type EmbedState = 'loading' | 'preview' | 'connecting' | 'active' | 'error'
+type EmbedState = 'loading' | 'preview' | 'language_select' | 'connecting' | 'active' | 'error'
 
 export default function EmbedPage() {
   const { tenantSlug } = useParams<{ tenantSlug: string }>()
@@ -98,6 +99,27 @@ export default function EmbedPage() {
       startSession(selectedLanguage)
     }
   }, [autostart, selectedLanguage, tenantConfig, state])
+
+  // User clicks "Starten" → show language picker if multiple languages, else start directly
+  const handleStartClick = useCallback(() => {
+    if (!tenantConfig) return
+    const languages = tenantConfig.supported_languages || ['de']
+    if (languages.length > 1) {
+      setState('language_select')
+    } else {
+      const lang = languages[0] || 'de'
+      setSelectedLanguage(lang)
+      setState('connecting')
+      startSession(lang)
+    }
+  }, [tenantConfig])
+
+  // Language selected from picker → start session
+  const handleLanguageSelect = useCallback((language: string) => {
+    setSelectedLanguage(language)
+    setState('connecting')
+    startSession(language)
+  }, [])
 
   const startSession = useCallback(async (language: string) => {
     if (!tenantConfig?.api_key || !tenantConfig.has_avatar) return
@@ -218,23 +240,6 @@ export default function EmbedPage() {
   )
 
 
-  const LANGUAGE_NAMES: Record<string, string> = {
-    de: 'Deutsch', en: 'English', fr: 'Français', es: 'Español', it: 'Italiano',
-    nl: 'Nederlands', pt: 'Português', pl: 'Polski', ru: 'Русский', uk: 'Українська',
-    tr: 'Türkçe', ar: 'العربية', zh: '中文', ja: '日本語', ko: '한국어',
-    hi: 'हिन्दी', sv: 'Svenska', no: 'Norsk', da: 'Dansk', fi: 'Suomi',
-    el: 'Ελληνικά', cs: 'Čeština', ro: 'Română', hu: 'Magyar',
-    bg: 'Български', hr: 'Hrvatski', sk: 'Slovenčina', sl: 'Slovenščina',
-  }
-
-  const LANGUAGE_FLAGS: Record<string, string> = {
-    de: '🇩🇪', en: '🇬🇧', fr: '🇫🇷', es: '🇪🇸', it: '🇮🇹', nl: '🇳🇱',
-    pt: '🇵🇹', pl: '🇵🇱', ru: '🇷🇺', uk: '🇺🇦', tr: '🇹🇷', ar: '🇸🇦',
-    zh: '🇨🇳', ja: '🇯🇵', ko: '🇰🇷', hi: '🇮🇳', sv: '🇸🇪', no: '🇳🇴',
-    da: '🇩🇰', fi: '🇫🇮', el: '🇬🇷', cs: '🇨🇿', ro: '🇷🇴', hu: '🇭🇺',
-    bg: '🇧🇬', hr: '🇭🇷', sk: '🇸🇰', sl: '🇸🇮',
-  }
-
   // --- RENDER ---
 
   if (state === 'loading') {
@@ -288,13 +293,10 @@ export default function EmbedPage() {
                 <div className="w-full h-full bg-gradient-to-br from-gray-800 to-gray-900 absolute inset-0" />
               )}
 
-              {state === 'preview' && (
+              {(state === 'preview' || state === 'language_select') && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/40">
                   <button
-                    onClick={() => {
-                      setState('connecting')
-                      startSession(selectedLanguage || 'de')
-                    }}
+                    onClick={handleStartClick}
                     className="flex items-center gap-2 px-6 py-3 rounded-xl text-white font-medium shadow-lg transition-all hover:scale-105 active:scale-95"
                     style={{ backgroundColor: primaryColor }}
                   >
@@ -328,31 +330,6 @@ export default function EmbedPage() {
           {/* Control bar + input — overlays bottom of video */}
           {isActive && (
             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/50 to-transparent pt-8 z-20">
-              {/* Language picker popup */}
-              {showLanguagePicker && (
-                <div className="mx-3 mb-2 p-2 rounded-lg bg-black/70 backdrop-blur-sm border border-white/20">
-                  <div className="grid grid-cols-2 gap-1">
-                    {(tenantConfig?.supported_languages || []).map((lang) => (
-                      <button
-                        key={lang}
-                        onClick={() => {
-                          setSelectedLanguage(lang)
-                          setShowLanguagePicker(false)
-                        }}
-                        className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs text-left transition-colors ${
-                          selectedLanguage === lang
-                            ? 'bg-white/20 text-white font-medium'
-                            : 'text-white/70 hover:bg-white/10 hover:text-white'
-                        }`}
-                      >
-                        <span>{LANGUAGE_FLAGS[lang] || '🌐'}</span>
-                        <span>{LANGUAGE_NAMES[lang] || lang}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               <PlayerControlBar
                 onTranscript={sendMessage}
                 disabled={isLoading || avatarSpeaking}
@@ -428,6 +405,29 @@ export default function EmbedPage() {
           </div>
         )}
       </div>
+
+      {/* Language Picker Modal — initial selection before session start */}
+      {state === 'language_select' && tenantConfig && (
+        <LanguagePicker
+          supportedLanguages={tenantConfig.supported_languages}
+          defaultLanguage={tenantConfig.default_language}
+          onSelect={handleLanguageSelect}
+          tenantName={tenantConfig.name}
+        />
+      )}
+
+      {/* Language Picker Modal — change during active session */}
+      {showLanguagePicker && isActive && tenantConfig && (
+        <LanguagePicker
+          supportedLanguages={tenantConfig.supported_languages}
+          defaultLanguage={selectedLanguage || tenantConfig.default_language}
+          onSelect={(lang) => {
+            setSelectedLanguage(lang)
+            setShowLanguagePicker(false)
+          }}
+          tenantName={tenantConfig.name}
+        />
+      )}
     </div>
   )
 }
