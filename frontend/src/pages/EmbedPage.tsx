@@ -93,38 +93,12 @@ export default function EmbedPage() {
       })
   }, [tenantSlug])
 
-  // User clicks "Starten" → show language picker if multiple languages, else start directly
-  const handleStartClick = useCallback(() => {
-    if (!tenantConfig) return
-    const languages = tenantConfig.supported_languages || ['de']
-    if (languages.length > 1) {
-      setState('language_select')
-    } else {
-      const lang = languages[0] || 'de'
-      setSelectedLanguage(lang)
-      setState('connecting')
-    }
-  }, [tenantConfig])
-
-  // Language selected from picker → set state, effect below will trigger session start
-  const handleLanguageSelect = useCallback((language: string) => {
-    setSelectedLanguage(language)
-    setState('connecting')
-  }, [])
-
-  // Effect: start session when state becomes 'connecting' and we have a language + config
-  useEffect(() => {
-    if (state === 'connecting' && selectedLanguage && tenantConfig && !session && !sessionStartedRef.current) {
-      startSession(selectedLanguage)
-    }
-  }, [state, selectedLanguage, tenantConfig])
-
+  // Start a session with the given language
   const startSession = useCallback(async (language: string) => {
     if (!tenantConfig?.api_key || !tenantConfig.has_avatar) return
     if (sessionStartedRef.current) return
     sessionStartedRef.current = true
     setError(null)
-    setState('connecting')
 
     try {
       const data = await sessionApi.create(tenantConfig.api_key, { language })
@@ -155,6 +129,37 @@ export default function EmbedPage() {
       setState('error')
     }
   }, [tenantConfig])
+
+  // User clicks "Starten" → show language picker if multiple languages, else start directly
+  const handleStartClick = useCallback(() => {
+    if (!tenantConfig) return
+    const languages = tenantConfig.supported_languages || ['de']
+    if (languages.length > 1) {
+      setState('language_select')
+    } else {
+      const lang = languages[0] || 'de'
+      setSelectedLanguage(lang)
+      setState('connecting')
+    }
+  }, [tenantConfig])
+
+  // Language selected from picker → set state, effect below will trigger session start
+  const handleLanguageSelect = useCallback((language: string) => {
+    setSelectedLanguage(language)
+    setState('connecting')
+  }, [])
+
+  // Effect: start session when state becomes 'connecting' and we have a language + config
+  useEffect(() => {
+    if (state === 'connecting' && selectedLanguage && tenantConfig && !session && !sessionStartedRef.current) {
+      // Resume AudioContext on user gesture chain (required for iOS Safari + Chrome)
+      try {
+        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+        if (ctx.state === 'suspended') ctx.resume()
+      } catch (_) {}
+      startSession(selectedLanguage)
+    }
+  }, [state, selectedLanguage, tenantConfig, startSession])
 
   // Stop session handler (can be called from widget via postMessage)
   const stopSession = useCallback(async () => {
@@ -350,19 +355,19 @@ export default function EmbedPage() {
                     input.value = ''
                   }
                 }}
-                className="flex items-center gap-2 px-3 pb-3"
+                className="flex items-center gap-2 px-4 pb-3"
               >
                 <input
                   name="question"
                   type="text"
                   placeholder="Frage eingeben..."
                   disabled={isLoading}
-                  className="flex-1 px-3 py-2 rounded-lg border border-white/20 bg-black/40 text-white text-sm focus:border-blue-400 focus:ring-1 focus:ring-blue-400 outline-none disabled:opacity-50 placeholder-gray-400 backdrop-blur-sm"
+                  className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-white/20 bg-black/40 text-white text-sm focus:border-blue-400 focus:ring-1 focus:ring-blue-400 outline-none disabled:opacity-50 placeholder-gray-400 backdrop-blur-sm"
                 />
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="p-2 rounded-lg text-white disabled:opacity-50 transition-colors"
+                  className="p-2 rounded-lg text-white disabled:opacity-50 transition-colors flex-shrink-0"
                   style={{ backgroundColor: primaryColor }}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

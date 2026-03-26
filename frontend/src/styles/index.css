@@ -107,6 +107,7 @@ body {
   flex-direction: column;
   height: 100vh;
   background: #000;
+  overflow: hidden;
 }
 
 /* Desktop: video fills all available space */
@@ -126,6 +127,10 @@ body {
     aspect-ratio: 1 / 1;
     border-radius: 0;
   }
+}
+
+.embed-player .avatar-container {
+  border-radius: 0;
 }
 
 .embed-player .player-control-bar {

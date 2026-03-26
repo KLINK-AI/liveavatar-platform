@@ -109,7 +109,6 @@ export default function LanguagePicker({
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Sprache suchen..."
                 className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 focus:border-blue-500 outline-none text-sm"
-                autoFocus
               />
             </div>
           </div>
@@ -143,7 +142,7 @@ export default function LanguagePicker({
                   key={code}
                   onClick={() => onSelect(code)}
                   className={`
-                    flex items-center gap-2 px-3 py-2.5 rounded-xl text-left transition-all
+                    flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl text-center transition-all
                     hover:bg-blue-50 hover:scale-[1.02] active:scale-[0.98]
                     ${isDefault
                       ? 'bg-blue-50 border-2 border-blue-200'
@@ -151,8 +150,8 @@ export default function LanguagePicker({
                     }
                   `}
                 >
-                  <span className="text-xl">{data.flag}</span>
-                  <span className="text-sm font-medium text-gray-800 truncate">
+                  <span className="text-lg">{data.flag}</span>
+                  <span className="text-sm font-bold text-gray-800">
                     {code.toUpperCase()}
                   </span>
                 </button>
