@@ -93,13 +93,6 @@ export default function EmbedPage() {
       })
   }, [tenantSlug])
 
-  // Auto-start if requested
-  useEffect(() => {
-    if (autostart && selectedLanguage && tenantConfig && !session && state === 'connecting') {
-      startSession(selectedLanguage)
-    }
-  }, [autostart, selectedLanguage, tenantConfig, state])
-
   // User clicks "Starten" → show language picker if multiple languages, else start directly
   const handleStartClick = useCallback(() => {
     if (!tenantConfig) return
@@ -110,16 +103,21 @@ export default function EmbedPage() {
       const lang = languages[0] || 'de'
       setSelectedLanguage(lang)
       setState('connecting')
-      startSession(lang)
     }
   }, [tenantConfig])
 
-  // Language selected from picker → start session
+  // Language selected from picker → set state, effect below will trigger session start
   const handleLanguageSelect = useCallback((language: string) => {
     setSelectedLanguage(language)
     setState('connecting')
-    startSession(language)
   }, [])
+
+  // Effect: start session when state becomes 'connecting' and we have a language + config
+  useEffect(() => {
+    if (state === 'connecting' && selectedLanguage && tenantConfig && !session && !sessionStartedRef.current) {
+      startSession(selectedLanguage)
+    }
+  }, [state, selectedLanguage, tenantConfig])
 
   const startSession = useCallback(async (language: string) => {
     if (!tenantConfig?.api_key || !tenantConfig.has_avatar) return
