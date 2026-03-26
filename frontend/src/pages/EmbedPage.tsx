@@ -308,7 +308,7 @@ export default function EmbedPage() {
                 <div className="w-full h-full bg-gradient-to-br from-gray-800 to-gray-900 absolute inset-0" />
               )}
 
-              {(state === 'preview' || state === 'language_select') && (
+              {state === 'preview' && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/40">
                   <button
                     onClick={handleStartClick}
@@ -319,6 +319,10 @@ export default function EmbedPage() {
                     Starten
                   </button>
                 </div>
+              )}
+
+              {state === 'language_select' && (
+                <div className="absolute inset-0 bg-black/40" />
               )}
 
               {state === 'connecting' && (
