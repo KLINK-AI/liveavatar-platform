@@ -68,40 +68,40 @@ export default function EmbedPage() {
   const [showLanguagePicker, setShowLanguagePicker] = useState(false)
   const keepAliveRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const sessionStartedRef = useRef(false)
+  // Ref always holds the latest tenantConfig — avoids stale closure issues
+  const tenantConfigRef = useRef<TenantConfig | null>(null)
+  tenantConfigRef.current = tenantConfig
 
   const autostart = searchParams.get('autostart') === '1'
   const langParam = searchParams.get('lang')
 
-  // Load tenant config
-  useEffect(() => {
-    if (!tenantSlug) return
-    tenantApi.getBySlug(tenantSlug)
-      .then((config: any) => {
-        setTenantConfig(config)
-        const lang = langParam || config.default_language || 'de'
-        setSelectedLanguage(lang)
+  // Unlock iOS audio — must be called in a user gesture handler
+  const unlockAudio = useCallback(() => {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const buffer = ctx.createBuffer(1, 1, 22050)
+      const source = ctx.createBufferSource()
+      source.buffer = buffer
+      source.connect(ctx.destination)
+      source.start(0)
+      if (ctx.state === 'suspended') ctx.resume()
+    } catch (_) {}
+  }, [])
 
-        if (autostart) {
-          setState('connecting')
-        } else {
-          setState('preview')
-        }
-      })
-      .catch(() => {
-        setError(`Tenant "${tenantSlug}" nicht gefunden.`)
-        setState('error')
-      })
-  }, [tenantSlug])
-
-  // Start a session with the given language
-  const startSession = useCallback(async (language: string) => {
-    if (!tenantConfig?.api_key || !tenantConfig.has_avatar) return
+  // Start session — reads config from ref, no closure issues
+  const doStartSession = useCallback(async (language: string) => {
+    const config = tenantConfigRef.current
+    if (!config?.api_key || !config.has_avatar) return
     if (sessionStartedRef.current) return
     sessionStartedRef.current = true
     setError(null)
+    setState('connecting')
+
+    // Unlock audio on iOS (called within user gesture chain)
+    unlockAudio()
 
     try {
-      const data = await sessionApi.create(tenantConfig.api_key, { language })
+      const data = await sessionApi.create(config.api_key, { language })
       const newSession: AvatarSession = {
         sessionId: data.session_id,
         livekitUrl: data.livekit_url,
@@ -118,7 +118,7 @@ export default function EmbedPage() {
 
       keepAliveRef.current = setInterval(async () => {
         try {
-          await sessionApi.keepAlive(newSession.sessionId, tenantConfig.api_key)
+          await sessionApi.keepAlive(newSession.sessionId, config.api_key)
         } catch (e) {
           console.warn('Keep-alive failed:', e)
         }
@@ -128,38 +128,50 @@ export default function EmbedPage() {
       setError(e.message || 'Session konnte nicht gestartet werden.')
       setState('error')
     }
-  }, [tenantConfig])
+  }, [unlockAudio])
+
+  // Load tenant config
+  useEffect(() => {
+    if (!tenantSlug) return
+    tenantApi.getBySlug(tenantSlug)
+      .then((config: any) => {
+        setTenantConfig(config)
+        const lang = langParam || config.default_language || 'de'
+        setSelectedLanguage(lang)
+
+        if (autostart) {
+          // For autostart, we need to wait for ref to be updated
+          tenantConfigRef.current = config
+          doStartSession(lang)
+        } else {
+          setState('preview')
+        }
+      })
+      .catch(() => {
+        setError(`Tenant "${tenantSlug}" nicht gefunden.`)
+        setState('error')
+      })
+  }, [tenantSlug])
 
   // User clicks "Starten" → show language picker if multiple languages, else start directly
   const handleStartClick = useCallback(() => {
-    if (!tenantConfig) return
-    const languages = tenantConfig.supported_languages || ['de']
+    const config = tenantConfigRef.current
+    if (!config) return
+    const languages = config.supported_languages || ['de']
     if (languages.length > 1) {
       setState('language_select')
     } else {
       const lang = languages[0] || 'de'
       setSelectedLanguage(lang)
-      setState('connecting')
+      doStartSession(lang)
     }
-  }, [tenantConfig])
+  }, [doStartSession])
 
-  // Language selected from picker → set state, effect below will trigger session start
+  // Language selected from picker → start session directly with chosen language
   const handleLanguageSelect = useCallback((language: string) => {
     setSelectedLanguage(language)
-    setState('connecting')
-  }, [])
-
-  // Effect: start session when state becomes 'connecting' and we have a language + config
-  useEffect(() => {
-    if (state === 'connecting' && selectedLanguage && tenantConfig && !session && !sessionStartedRef.current) {
-      // Resume AudioContext on user gesture chain (required for iOS Safari + Chrome)
-      try {
-        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
-        if (ctx.state === 'suspended') ctx.resume()
-      } catch (_) {}
-      startSession(selectedLanguage)
-    }
-  }, [state, selectedLanguage, tenantConfig, startSession])
+    doStartSession(language)
+  }, [doStartSession])
 
   // Stop session handler (can be called from widget via postMessage)
   const stopSession = useCallback(async () => {
