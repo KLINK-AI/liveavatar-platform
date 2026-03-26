@@ -28,6 +28,7 @@ class BaseTTSProvider(ABC):
         text: str,
         voice_id: str,
         sample_rate: int = 24000,
+        language: Optional[str] = None,
     ) -> AsyncIterator[bytes]:
         """
         Convert text to audio in streaming mode.
@@ -40,6 +41,7 @@ class BaseTTSProvider(ABC):
             text: Text to synthesize
             voice_id: Provider-specific voice identifier
             sample_rate: Output sample rate (24000 for LiveAvatar LITE)
+            language: ISO 639-1 language code (e.g. 'de', 'en') for multilingual models
 
         Yields:
             bytes: Raw PCM 16Bit audio chunks
@@ -52,6 +54,7 @@ class BaseTTSProvider(ABC):
         text: str,
         voice_id: str,
         sample_rate: int = 24000,
+        language: Optional[str] = None,
     ) -> bytes:
         """
         Convert text to audio in batch mode.
@@ -63,6 +66,7 @@ class BaseTTSProvider(ABC):
             text: Text to synthesize
             voice_id: Provider-specific voice identifier
             sample_rate: Output sample rate
+            language: ISO 639-1 language code for multilingual models
 
         Returns:
             bytes: Complete raw PCM 16Bit audio

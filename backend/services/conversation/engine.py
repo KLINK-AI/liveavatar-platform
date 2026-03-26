@@ -119,6 +119,7 @@ class ConversationEngine:
 
         tts = self._get_tts_for_tenant(tenant)
         voice_id = self._get_voice_id(tenant)
+        language = self.get_session_language(session_id)
 
         try:
             # Signal avatar: we're about to speak
@@ -130,6 +131,7 @@ class ConversationEngine:
                 text=text,
                 voice_id=voice_id,
                 sample_rate=settings.tts_sample_rate,
+                language=language,
             ):
                 await ws_manager.send_speak_from_bytes(audio_chunk)
                 chunk_count += 1
@@ -547,6 +549,7 @@ class ConversationEngine:
                 text=greeting_text,
                 voice_id=voice_id,
                 sample_rate=settings.tts_sample_rate,
+                language=language,
             ):
                 chunks.append(audio_chunk)
 
@@ -653,6 +656,7 @@ class ConversationEngine:
         else:
             tts = self._get_tts_for_tenant(tenant)
         voice_id = self._get_voice_id(tenant)
+        language = self.get_session_language(session_id)
         cached_chunks: list[bytes] = []
 
         try:
@@ -662,6 +666,7 @@ class ConversationEngine:
                 text=text,
                 voice_id=voice_id,
                 sample_rate=settings.tts_sample_rate,
+                language=language,
             ):
                 await ws_manager.send_speak_from_bytes(audio_chunk)
                 cached_chunks.append(audio_chunk)

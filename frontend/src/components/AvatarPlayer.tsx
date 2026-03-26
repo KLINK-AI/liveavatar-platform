@@ -10,6 +10,7 @@ import {
   LiveKitRoom,
   VideoTrack,
   RoomAudioRenderer,
+  StartAudio,
   useRemoteParticipants,
   useTracks,
 } from '@livekit/components-react'
@@ -73,8 +74,11 @@ export default function AvatarPlayer({
         style={{ height: '100%' }}
       >
         <AvatarVideoTrack />
-        {/* RoomAudioRenderer handles all remote audio tracks, including iOS autoplay */}
+        {/* RoomAudioRenderer handles all remote audio tracks */}
         <RoomAudioRenderer />
+        {/* StartAudio: required for iOS Safari/Chrome — triggers room.startAudio()
+            on first user gesture to unlock WebRTC audio autoplay policy */}
+        <StartAudio label="Audio aktivieren" />
 
         {/* Connection status indicator */}
         <div className="absolute top-3 right-3">

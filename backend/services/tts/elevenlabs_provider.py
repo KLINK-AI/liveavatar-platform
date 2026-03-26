@@ -63,6 +63,7 @@ class ElevenLabsProvider(BaseTTSProvider):
         text: str,
         voice_id: str,
         sample_rate: int = 24000,
+        language: Optional[str] = None,
     ) -> AsyncIterator[bytes]:
         """
         TRUE STREAMING: Text → PCM audio chunks via ElevenLabs API.
@@ -78,6 +79,7 @@ class ElevenLabsProvider(BaseTTSProvider):
             text: Text to synthesize (supports German, English, etc.)
             voice_id: ElevenLabs voice ID
             sample_rate: Must be 24000 for LiveAvatar LITE
+            language: ISO 639-1 language code for multilingual models (e.g. 'de', 'en')
 
         Yields:
             bytes: PCM 16Bit signed LE audio chunks (~0.5s each)
@@ -96,6 +98,7 @@ class ElevenLabsProvider(BaseTTSProvider):
             voice_id=voice_id,
             model=self.model_id,
             sample_rate=sample_rate,
+            language=language,
         )
 
         client = self._get_client()
@@ -106,7 +109,8 @@ class ElevenLabsProvider(BaseTTSProvider):
         def _generate_and_stream():
             """Run synchronous ElevenLabs SDK and push chunks to async queue."""
             try:
-                audio_stream = client.text_to_speech.convert(
+                # Build convert kwargs — include language_code for multilingual models
+                convert_kwargs = dict(
                     text=text,
                     voice_id=voice_id,
                     model_id=self.model_id,
@@ -118,6 +122,9 @@ class ElevenLabsProvider(BaseTTSProvider):
                         "use_speaker_boost": True,
                     },
                 )
+                if language:
+                    convert_kwargs["language_code"] = language
+                audio_stream = client.text_to_speech.convert(**convert_kwargs)
                 for chunk in audio_stream:
                     loop.call_soon_threadsafe(queue.put_nowait, chunk)
             except Exception as e:
@@ -178,6 +185,7 @@ class ElevenLabsProvider(BaseTTSProvider):
         text: str,
         voice_id: str,
         sample_rate: int = 24000,
+        language: Optional[str] = None,
     ) -> bytes:
         """
         Convert text to complete PCM audio buffer.
@@ -189,13 +197,14 @@ class ElevenLabsProvider(BaseTTSProvider):
             text: Text to synthesize
             voice_id: ElevenLabs voice ID
             sample_rate: Output sample rate
+            language: ISO 639-1 language code for multilingual models
 
         Returns:
             bytes: Complete PCM 16Bit audio
         """
         audio_buffer = bytearray()
 
-        async for chunk in self.text_to_speech_stream(text, voice_id, sample_rate):
+        async for chunk in self.text_to_speech_stream(text, voice_id, sample_rate, language=language):
             audio_buffer.extend(chunk)
 
         logger.info(
